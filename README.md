@@ -1,1 +1,1 @@
-# Backend code for Volt project
+# Backend code for Volt
