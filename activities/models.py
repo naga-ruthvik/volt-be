@@ -9,7 +9,6 @@ class Platform(models.TextChoices):
     CODECHEF = "codechef", "CodeChef"
     LEETCODE = "leetcode", "LeetCode"
     HACKERRANK = "hackerrank", "HackerRank"
-    CODEWARS = "codewars", "CodeWars"
     GITHUB = "github", "GitHub"
 
 
@@ -23,6 +22,9 @@ class PlatformAccount(models.Model):
 
     def __str__(self):
         return self.platform + " - " + self.username
+
+    class Meta:
+        unique_together = ("user", "platform")
 
 
 class GenerationRequest(models.Model):
