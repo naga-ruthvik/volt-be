@@ -38,4 +38,5 @@ def verify_otp(request):
     except OTPSessions.DoesNotExist:
         return Response("Invalid OTP", status=status.HTTP_400_BAD_REQUEST)
     otp_session.verified = True
+    otp_session.save()
     return Response("OTP verified successfully", status=status.HTTP_200_OK)
