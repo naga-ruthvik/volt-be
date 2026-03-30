@@ -23,7 +23,7 @@ class PlatformAccount(models.Model):
     def __str__(self):
         return self.platform + " - " + self.username
 
-    class Meta:
+    class Meta:  # noqa: DJ012
         unique_together = ("user", "platform")
 
 
