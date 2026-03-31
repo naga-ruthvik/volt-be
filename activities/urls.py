@@ -1,6 +1,10 @@
 from django.urls import path
 
-from .views import PlatformListCreateView, PlatformUpdateDestroyView
+from .views import (
+    PlatformListCreateView,
+    PlatformUpdateDestroyView,
+    GenerateRequestView,
+)
 
 urlpatterns = [
     path(
@@ -13,4 +17,5 @@ urlpatterns = [
         PlatformUpdateDestroyView.as_view(),
         name="platform-update-destroy",
     ),
+    path("generate/", GenerateRequestView.as_view(), name="generate-request"),
 ]
