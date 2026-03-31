@@ -66,5 +66,8 @@ class Activity(models.Model):
     activity_count = models.IntegerField(default=0)
     metadata = models.JSONField(null=True, blank=True)
 
+    class Meta:
+        unique_together = ("platform", "activity_date")
+
     def __str__(self):
         return str(self.id) + " - " + str(self.activity_date)
