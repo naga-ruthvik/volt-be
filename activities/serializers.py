@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import PlatformAccount
+from .models import PlatformAccount, GenerationRequest
 
 
 class PlatformListSerializer(serializers.ModelSerializer):
@@ -17,4 +17,12 @@ class PlatformCreateSerializer(serializers.ModelSerializer):
 class PlatformUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = PlatformAccount
+        fields = ["username"]
+
+
+class GenerateRequestsCreateSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(source="user.username")
+
+    class Meta:
+        model = GenerationRequest
         fields = ["username"]
