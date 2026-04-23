@@ -1,10 +1,12 @@
 from django.urls import path
 
 from .views import (
+    GenerateRequestView,
     PlatformListCreateView,
     PlatformUpdateDestroyView,
-    GenerateRequestView,
+    ActivitiesListView,
 )
+
 
 urlpatterns = [
     path(
@@ -18,4 +20,9 @@ urlpatterns = [
         name="platform-update-destroy",
     ),
     path("generate/", GenerateRequestView.as_view(), name="generate-request"),
+    path(
+        "activities/<str:username>/",
+        ActivitiesListView.as_view(),
+        name="activities-list",
+    ),
 ]

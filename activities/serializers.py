@@ -1,5 +1,6 @@
 from rest_framework import serializers
-from .models import PlatformAccount, GenerationRequest
+
+from .models import Activity, GenerationRequest, PlatformAccount
 
 
 class PlatformListSerializer(serializers.ModelSerializer):
@@ -26,3 +27,9 @@ class GenerateRequestsCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = GenerationRequest
         fields = ["username"]
+
+
+class ActivityListSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Activity
+        fields = ["id", "platform", "activity_date", "activity_count", "metadata"]

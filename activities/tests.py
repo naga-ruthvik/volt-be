@@ -1,10 +1,13 @@
+from datetime import date
+
 from django.contrib.auth.models import User
+from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.urls import reverse
 
 from rest_framework.test import APIClient
 
-from .models import Platform, PlatformAccount
+from .models import Activity, GenerationRequest, Platform, PlatformAccount
 
 
 class PlatformAccountTest(TestCase):
@@ -150,3 +153,113 @@ class PlatformAccountTest(TestCase):
         response = self.client.get(path=url)
         self.assertEqual(response.status_code, 404)
 
+
+class ActivitiesListViewTest(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create_user(
+            username="heatmap_user",
+            email="heatmap@mail.com",
+            password="password1234PASS",  # noqa: S106
+        )
+        self.other_user = User.objects.create_user(
+            username="other_user",
+            email="other@mail.com",
+            password="password1234PASS",  # noqa: S106
+        )
+
+    def _create_generation_request(self, user):
+        return GenerationRequest.objects.create(user=user)
+
+    def _create_activity(self, generation_request, platform, activity_date, count):
+        return Activity.objects.create(
+            generation_request=generation_request,
+            platform=platform,
+            activity_date=activity_date,
+            activity_count=count,
+        )
+
+    def test_list_activities_filters_by_username(self):
+        user_request = self._create_generation_request(self.user)
+        other_request = self._create_generation_request(self.other_user)
+
+        self._create_activity(user_request, Platform.GITHUB, date(2026, 4, 1), 3)
+        self._create_activity(other_request, Platform.GITHUB, date(2026, 4, 1), 7)
+
+        url = reverse("activities-list", kwargs={"username": self.user.username})
+        response = self.client.get(path=url, format="json")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]["activity_count"], 3)
+
+    def test_list_activities_filters_by_date_range(self):
+        generation_request = self._create_generation_request(self.user)
+
+        self._create_activity(generation_request, Platform.GITHUB, date(2026, 4, 1), 1)
+        self._create_activity(generation_request, Platform.GITHUB, date(2026, 4, 2), 2)
+        self._create_activity(generation_request, Platform.GITHUB, date(2026, 4, 3), 3)
+
+        url = reverse("activities-list", kwargs={"username": self.user.username})
+        response = self.client.get(
+            path=url,
+            data={"start_date": "2026-04-02", "end_date": "2026-04-03"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 2)
+        self.assertEqual(response.data[0]["activity_date"], "2026-04-02")
+        self.assertEqual(response.data[1]["activity_date"], "2026-04-03")
+
+    def test_list_activities_rejects_invalid_dates(self):
+        url = reverse("activities-list", kwargs={"username": self.user.username})
+        response = self.client.get(path=url, data={"start_date": "2026-99-99"})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("start_date", response.data)
+
+    def test_list_activities_rejects_reversed_date_range(self):
+        url = reverse("activities-list", kwargs={"username": self.user.username})
+        response = self.client.get(
+            path=url,
+            data={"start_date": "2026-04-10", "end_date": "2026-04-01"},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("date_range", response.data)
+
+
+class ActivityModelConstraintTest(TestCase):
+    def test_activity_unique_together_is_scoped_per_generation_request(self):
+        user = User.objects.create_user(
+            username="constraint_user",
+            email="constraint@mail.com",
+            password="password1234PASS",  # noqa: S106
+        )
+        generation_request_1 = GenerationRequest.objects.create(user=user)
+        generation_request_2 = GenerationRequest.objects.create(user=user)
+
+        Activity.objects.create(
+            generation_request=generation_request_1,
+            platform=Platform.GITHUB,
+            activity_date=date(2026, 4, 1),
+            activity_count=5,
+        )
+
+        with transaction.atomic():
+            with self.assertRaises(IntegrityError):
+                Activity.objects.create(
+                    generation_request=generation_request_1,
+                    platform=Platform.GITHUB,
+                    activity_date=date(2026, 4, 1),
+                    activity_count=10,
+                )
+
+        # Same platform/date is allowed for a different generation request.
+        Activity.objects.create(
+            generation_request=generation_request_2,
+            platform=Platform.GITHUB,
+            activity_date=date(2026, 4, 1),
+            activity_count=8,
+        )
