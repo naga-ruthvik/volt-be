@@ -67,7 +67,7 @@ class Activity(models.Model):
     metadata = models.JSONField(null=True, blank=True)
 
     class Meta:
-        unique_together = ("platform", "activity_date")
+        unique_together = ("generation_request", "platform", "activity_date")
 
     def __str__(self):
         return str(self.id) + " - " + str(self.activity_date)
