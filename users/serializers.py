@@ -1,17 +1,25 @@
-from django.contrib.auth.models import User
+from django.contrib.auth import get_user_model
 
 from rest_framework import serializers
+
+User = get_user_model()
 
 
 class UserSerializer(serializers.ModelSerializer):
     """
-    Serializer to create and list users.
-    Only email field is required for creation, and only email field is returned in the response.
+    Serializer to list users.
     """
-
     class Meta:
         model = User
-        fields = ["email"]
+        fields = ["email", "username"]
+
+
+class EmailOnlySerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+
+class ProfileUpdateSerializer(serializers.Serializer):
+    username = serializers.CharField()
 
 
 class OTPSerializer(serializers.Serializer):
