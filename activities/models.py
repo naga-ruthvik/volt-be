@@ -1,5 +1,6 @@
 import uuid
 
+from django.conf import settings
 from django.db import models
 
 
@@ -14,7 +15,7 @@ class Platform(models.TextChoices):
 
 class PlatformAccount(models.Model):
     id = models.AutoField(primary_key=True)
-    user = models.ForeignKey("auth.User", on_delete=models.CASCADE)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     platform = models.CharField(choices=Platform.choices, max_length=20)
     username = models.CharField(max_length=100)
     last_fetched = models.DateTimeField(null=True, blank=True)
@@ -25,6 +26,7 @@ class PlatformAccount(models.Model):
 
     class Meta:  # noqa: DJ012
         unique_together = ("user", "platform")
+        db_table = "platform_accounts"
 
 
 class GenerationRequest(models.Model):
@@ -34,7 +36,7 @@ class GenerationRequest(models.Model):
         FAILED = "failed", "Failed"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    user = models.ForeignKey("auth.User", on_delete=models.CASCADE)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     status = models.CharField(
         max_length=20,
@@ -52,6 +54,9 @@ class GenerationRequest(models.Model):
     longest_streak = models.IntegerField(default=0)
     total_activities = models.IntegerField(default=0)
 
+    class Meta:
+        db_table = "generation_requests"
+
     def __str__(self):
         return f"{str(self.id)[:6]}-{self.user.username}"
 
@@ -68,6 +73,23 @@ class Activity(models.Model):
 
     class Meta:
         unique_together = ("generation_request", "platform", "activity_date")
+        db_table = "activities"
 
     def __str__(self):
         return str(self.id) + " - " + str(self.activity_date)
+
+
+class UserMetrics(models.Model):
+    id = models.AutoField(primary_key=True)
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    total_active_days = models.IntegerField(default=0)
+    current_streak = models.IntegerField(default=0)
+    longest_streak = models.IntegerField(default=0)
+    total_activities = models.IntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "user_metrics"
+
+    def __str__(self):
+        return self.user.username
