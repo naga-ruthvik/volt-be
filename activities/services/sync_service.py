@@ -1,34 +1,28 @@
-from datetime import datetime
-
 from django.db import transaction
 from django.utils import timezone
 
-from activities.models import Activity, GenerationRequest, Platform, PlatformAccount
+from activities.models import Platform, PlatformAccount
 from activities.services.activity_service import ActivityService
 from activities.services.metrics_service import MetricsService
 from activities.services.normalization import ActivityNormalization
 from activities.services.platforms.codeforces_service import CodeforcesService
 from activities.services.platforms.github_service import GitHubService
 
-from .activity_service import ActivityService
-from .metrics_service import MetricsService
-from .test.normalization_test import normalizer
-
 
 class SyncService:
     @staticmethod
     def sync_github_data(username):
         github_service = GitHubService()
-        normalizer = ActivityNormalization()
+        github_normalizer = ActivityNormalization()
         events = github_service.fetch_events(username)
-        return normalizer.github_activity_normalizer(events)
+        return github_normalizer.github_activity_normalizer(events)
 
     @staticmethod
     def sync_codeforces_data(username):
         codeforces_service = CodeforcesService()
         events = codeforces_service.fetch_activities(username)
-        normalizer = ActivityNormalization()
-        return normalizer.codeforces_activity_normalizer(events)
+        codeforces_normalizer = ActivityNormalization()
+        return codeforces_normalizer.codeforces_activity_normalizer(events)
 
     @staticmethod
     def sync_all_platforms(generation_request):
