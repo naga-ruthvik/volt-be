@@ -1,46 +1,48 @@
-from django.contrib.auth.models import User
 from django.shortcuts import get_object_or_404
 from django.utils.dateparse import parse_date
 
 from rest_framework import generics, status
 from rest_framework.exceptions import ValidationError
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from .models import Activity, PlatformAccount
+from .models import Activity, GenerationRequest, PlatformAccount, UserMetrics
 from .serializers import (
     ActivityListSerializer,
-    GenerateRequestsCreateSerializer,
+    GenerationMetricsSerializer,
     PlatformCreateSerializer,
     PlatformListSerializer,
     PlatformUpdateSerializer,
+    UserMetricsSerializer,
 )
 from .services.sync_service import SyncService
 
 
+# platform views
 class PlatformListCreateView(generics.ListCreateAPIView):
-    queryset = PlatformAccount.objects.all()
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        username = self.kwargs.get("username")
-        return PlatformAccount.objects.filter(user__username=username)
+        return PlatformAccount.objects.filter(user=self.request.user)
 
     def get_serializer_class(self):
         if self.request.method == "POST":
             return PlatformCreateSerializer
         return PlatformListSerializer
 
+    def perform_create(self, serializer):
+        return serializer.save(user=self.request.user)
+
 
 class PlatformUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
     queryset = PlatformAccount.objects.all()
+    permission_classes = [IsAuthenticated]
 
     def get_object(self):
-        username = self.kwargs.get("username")
-        platform_username = self.kwargs.get("platform_username")
         platform = self.kwargs.get("platform")
         return get_object_or_404(
             PlatformAccount,
-            user__username=username,
-            username=platform_username,
+            user=self.request.user,
             platform=platform,
         )
 
@@ -50,15 +52,12 @@ class PlatformUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
         return PlatformListSerializer
 
 
+# activity views
 class GenerateRequestView(generics.CreateAPIView):
-    serializer_class = GenerateRequestsCreateSerializer
+    permission_classes = [IsAuthenticated]
 
     def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        # TODO: RELACE BY ADDING AUTHENTICATION
-        user = User.objects.get(username=serializer.validated_data["user"]["username"])
-        generation_request = serializer.save(user=user)
+        generation_request = GenerationRequest.objects.create(user=request.user)
         # TODO: move this to async (Celery)
         SyncService.sync_all_platforms(generation_request)
         return Response(
@@ -70,11 +69,10 @@ class GenerateRequestView(generics.CreateAPIView):
 class ActivitiesListView(generics.ListCreateAPIView):
     queryset = Activity.objects.all()
     serializer_class = ActivityListSerializer
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        username = self.kwargs.get("username")
-        queryset = Activity.objects.filter(generation_request__user__username=username)
-
+        queryset = Activity.objects.filter(generation_request__user=self.request.user)
         platform = self.request.query_params.get("platform")
         if platform:
             queryset = queryset.filter(platform=platform)
@@ -116,3 +114,22 @@ class ActivitiesListView(generics.ListCreateAPIView):
             queryset = queryset.filter(activity_date__lte=end_date)
 
         return queryset.order_by("activity_date", "platform", "id")
+
+
+class MetricsRetrieveView(generics.GenericAPIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        user_metrics = UserMetrics.objects.get(user=self.request.user)
+        generation_metrics = (
+            GenerationRequest.objects.filter(user=self.request.user)
+            .order_by("-created_at")
+            .all()
+        )
+        payload = {
+            "user_metrics": UserMetricsSerializer(user_metrics).data,
+            "generation_metrics": GenerationMetricsSerializer(
+                generation_metrics, many=True
+            ).data,
+        }
+        return Response(payload, status=status.HTTP_200_OK)
