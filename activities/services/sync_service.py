@@ -1,28 +1,85 @@
 from django.db import transaction
 from django.utils import timezone
 
+import json
+from datetime import datetime, timezone as dt_timezone
+
 from activities.models import Platform, PlatformAccount
 from activities.services.activity_service import ActivityService
 from activities.services.metrics_service import MetricsService
-from activities.services.normalization import ActivityNormalization
-from activities.services.platforms.codeforces_service import CodeforcesService
-from activities.services.platforms.github_service import GitHubService
+from activities.services.platforms import CodeforcesClient, GitHubClient, LeetcodeClient
 
 
 class SyncService:
     @staticmethod
     def sync_github_data(username):
-        github_service = GitHubService()
-        github_normalizer = ActivityNormalization()
-        events = github_service.fetch_events(username)
-        return github_normalizer.github_activity_normalizer(events)
+        github_client = GitHubClient()
+        return github_client.get_activity_summary(username)
 
     @staticmethod
     def sync_codeforces_data(username):
-        codeforces_service = CodeforcesService()
-        events = codeforces_service.fetch_activities(username)
-        codeforces_normalizer = ActivityNormalization()
-        return codeforces_normalizer.codeforces_activity_normalizer(events)
+        codeforces_client = CodeforcesClient()
+        return codeforces_client.get_activity_summary(username)
+
+    @staticmethod
+    def sync_leetcode_data(username):
+        leetcode_client = LeetcodeClient()
+        profile_payload = leetcode_client.get_user_profile(username)
+        if SyncService._is_error_payload(profile_payload):
+            return profile_payload
+
+        submission_calendar = profile_payload.get("data", {}).get("submission_calendar")
+        if not submission_calendar:
+            return {
+                "status": "success",
+                "platform": "leetcode",
+                "username": username,
+                "data": [],
+            }
+
+        try:
+            calendar_map = json.loads(submission_calendar)
+        except (TypeError, ValueError):
+            return {
+                "status": "error",
+                "platform": "leetcode",
+                "error_type": "INVALID_CALENDAR",
+                "message": "[LeetCode] API Error: Invalid submission calendar.",
+                "details": {"username": username},
+            }
+
+        normalized = []
+        for timestamp_str, count in calendar_map.items():
+            try:
+                ts_int = int(timestamp_str)
+            except (TypeError, ValueError):
+                continue
+            date = datetime.fromtimestamp(ts_int, tz=dt_timezone.utc).date().isoformat()
+            normalized.append(
+                {
+                    "platform": "leetcode",
+                    "date": date,
+                    "count": int(count),
+                }
+            )
+
+        normalized.sort(key=lambda item: item.get("date") or "")
+        return {
+            "status": "success",
+            "platform": "leetcode",
+            "username": username,
+            "data": normalized,
+        }
+
+    @staticmethod
+    def _is_error_payload(data) -> bool:
+        return isinstance(data, dict) and data.get("status") == "error"
+
+    @staticmethod
+    def _unwrap_success(data):
+        if isinstance(data, dict) and data.get("status") == "success":
+            return data.get("data", [])
+        return data
 
     @staticmethod
     def sync_all_platforms(generation_request):
@@ -34,21 +91,29 @@ class SyncService:
         # TODO: include all the platforms for syncing
         for account in platform_accounts:
             if account.platform == Platform.GITHUB:
-                try:
-                    data = SyncService.sync_github_data(account.username)
-                    all_data.append((account, data))
-                except Exception as e:
+                data = SyncService.sync_github_data(account.username)
+                if SyncService._is_error_payload(data):
                     PlatformAccount.objects.filter(id=account.id).update(
-                        last_fetched=timezone.now(), fetch_error=str(e)
+                        last_fetched=timezone.now(), fetch_error=data.get("message")
                     )
+                    continue
+                all_data.append((account, SyncService._unwrap_success(data)))
             if account.platform == Platform.CODEFORCES:
-                try:
-                    data = SyncService.sync_codeforces_data(account.username)
-                    all_data.append((account, data))
-                except Exception as e:
+                data = SyncService.sync_codeforces_data(account.username)
+                if SyncService._is_error_payload(data):
                     PlatformAccount.objects.filter(id=account.id).update(
-                        last_fetched=timezone.now(), fetch_error=str(e)
+                        last_fetched=timezone.now(), fetch_error=data.get("message")
                     )
+                    continue
+                all_data.append((account, SyncService._unwrap_success(data)))
+            if account.platform == Platform.LEETCODE:
+                data = SyncService.sync_leetcode_data(account.username)
+                if SyncService._is_error_payload(data):
+                    PlatformAccount.objects.filter(id=account.id).update(
+                        last_fetched=timezone.now(), fetch_error=data.get("message")
+                    )
+                    continue
+                all_data.append((account, SyncService._unwrap_success(data)))
         with transaction.atomic():
             for account, normalized_events in all_data:
                 ActivityService.bulk_save(
@@ -61,7 +126,8 @@ class SyncService:
                     last_fetched=timezone.now(),
                     fetch_error=None,
                 )
-            generation_request.status = "success"
-            generation_request.save()
+            generation_request.status = "completed"
+            generation_request.last_synced_at = timezone.now()
+            generation_request.save(update_fields=["status", "last_synced_at"])
         with transaction.atomic():
             MetricsService.calculate_metrics(generation_request)
