@@ -1,4 +1,3 @@
-import uuid
 from datetime import timedelta
 
 from django.contrib.auth.hashers import check_password, make_password
@@ -55,7 +54,7 @@ class UserManager(BaseUserManager):
 
 
 class User(AbstractBaseUser, PermissionsMixin):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    id = models.AutoField(primary_key=True)
     email = models.EmailField(unique=True)
     username = models.CharField(unique=True)
     token_version = models.IntegerField(default=0)

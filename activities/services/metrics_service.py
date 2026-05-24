@@ -42,10 +42,9 @@ class MetricsService:
         activities = Activity.objects.filter(generation_request=generation_request)
         if not activities.exists():
             metrics = {
-                "total_active_days": 0,
-                "current_streak": 0,
-                "longest_streak": 0,
-                "total_activities": 0,
+                "gen_active_days": 0,
+                "gen_longest_streak": 0,
+                "gen_total_activities": 0,
             }
             GenerationRequest.objects.filter(id=generation_request.id).update(**metrics)
             return metrics
@@ -63,10 +62,9 @@ class MetricsService:
         current_streak, longest_streak = MetricsService._calculate_streaks(active_dates)
         total_activities = sum(day_summary["total_count"] or 0 for day_summary in daily_totals)
         metrics = {
-            "total_active_days": len(active_dates),
-            "current_streak": current_streak,
-            "longest_streak": longest_streak,
-            "total_activities": total_activities,
+            "gen_active_days": len(active_dates),
+            "gen_longest_streak": longest_streak,
+            "gen_total_activities": total_activities,
         }
         GenerationRequest.objects.filter(id=generation_request.id).update(**metrics)
         return metrics
@@ -76,22 +74,11 @@ class MetricsService:
         user = generation_request.user
         user_metrics, _ = UserMetrics.objects.get_or_create(user=user)
 
-        all_user_activities = Activity.objects.filter(generation_request__user=user).order_by(
-            "platform",
-            "activity_date",
-            "generation_request__created_at",
-            "id",
-        )
-
-        latest_platform_daily_counts = {}
-        for activity in all_user_activities:
-            latest_platform_daily_counts[(activity.platform, activity.activity_date)] = (
-                activity.activity_count
-            )
-
         daily_totals = {}
-        for (_, activity_date), activity_count in latest_platform_daily_counts.items():
-            daily_totals[activity_date] = daily_totals.get(activity_date, 0) + activity_count
+        for activity in Activity.objects.filter(user=user).order_by("activity_date", "id"):
+            daily_totals[activity.activity_date] = (
+                daily_totals.get(activity.activity_date, 0) + activity.activity_count
+            )
 
         total_activities = sum(daily_totals.values())
         sorted_days = sorted(daily_totals.keys())

@@ -51,10 +51,9 @@ class GenerationMetricsSerializer(serializers.ModelSerializer):
             "id",
             "created_at",
             "status",
-            "total_active_days",
-            "current_streak",
-            "longest_streak",
-            "total_activities",
+            "gen_active_days",
+            "gen_longest_streak",
+            "gen_total_activities",
         ]
 
 

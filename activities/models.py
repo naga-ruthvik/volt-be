@@ -1,5 +1,3 @@
-import uuid
-
 from django.conf import settings
 from django.db import models
 
@@ -32,10 +30,11 @@ class PlatformAccount(models.Model):
 class GenerationRequest(models.Model):
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"
-        SUCCESS = "success", "Success"
+        PROCESSING = "processing", "Processing"
+        COMPLETED = "completed", "Completed"
         FAILED = "failed", "Failed"
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    id = models.AutoField(primary_key=True)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     status = models.CharField(
@@ -43,16 +42,15 @@ class GenerationRequest(models.Model):
         choices=Status.choices,
         default=Status.PENDING,
     )
-    last_synced_at = models.DateField(auto_now=True)
+    last_synced_at = models.DateTimeField(null=True, blank=True)
     error_message = models.TextField(null=True, blank=True)
     # TODO: MODIFY THIS TO FILE URL FIELD
     svg_cache = models.TextField(null=True, blank=True)
 
     # STREAK DATA
-    total_active_days = models.IntegerField(default=0)
-    current_streak = models.IntegerField(default=0)
-    longest_streak = models.IntegerField(default=0)
-    total_activities = models.IntegerField(default=0)
+    gen_active_days = models.IntegerField(default=0)
+    gen_longest_streak = models.IntegerField(default=0)
+    gen_total_activities = models.IntegerField(default=0)
 
     class Meta:
         db_table = "generation_requests"
@@ -63,6 +61,7 @@ class GenerationRequest(models.Model):
 
 class Activity(models.Model):
     id = models.AutoField(primary_key=True)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     generation_request = models.ForeignKey(
         "GenerationRequest", on_delete=models.CASCADE, related_name="activities"
     )
@@ -72,7 +71,7 @@ class Activity(models.Model):
     metadata = models.JSONField(null=True, blank=True)
 
     class Meta:
-        unique_together = ("generation_request", "platform", "activity_date")
+        unique_together = ("user", "platform", "activity_date")
         db_table = "activities"
 
     def __str__(self):

@@ -72,7 +72,7 @@ class ActivitiesListView(generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        queryset = Activity.objects.filter(generation_request__user=self.request.user)
+        queryset = Activity.objects.filter(user=self.request.user)
         platform = self.request.query_params.get("platform")
         if platform:
             queryset = queryset.filter(platform=platform)
@@ -120,12 +120,18 @@ class MetricsRetrieveView(generics.GenericAPIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
-        user_metrics = UserMetrics.objects.get(user=self.request.user)
-        generation_metrics = (
-            GenerationRequest.objects.filter(user=self.request.user)
-            .order_by("-created_at")
-            .all()
-        )
+        try:
+            user_metrics = UserMetrics.objects.get(user=self.request.user)
+            generation_metrics = (
+                GenerationRequest.objects.filter(user=self.request.user)
+                .order_by("-created_at")
+                .all()
+            )
+        except UserMetrics.DoesNotExist:
+            return Response(
+                {"error": "User metrics not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
         payload = {
             "user_metrics": UserMetricsSerializer(user_metrics).data,
             "generation_metrics": GenerationMetricsSerializer(

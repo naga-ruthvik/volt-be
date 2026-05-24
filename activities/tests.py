@@ -183,6 +183,7 @@ class ActivitiesListViewTest(TestCase):
 
     def _create_activity(self, generation_request, platform, activity_date, count):
         return Activity.objects.create(
+            user=generation_request.user,
             generation_request=generation_request,
             platform=platform,
             activity_date=activity_date,
@@ -241,7 +242,7 @@ class ActivitiesListViewTest(TestCase):
 
 
 class ActivityModelConstraintTest(TestCase):
-    def test_activity_unique_together_is_scoped_per_generation_request(self):
+    def test_activity_unique_together_is_scoped_per_user(self):
         user = User.objects.create_user(
             username="constraint_user",
             email="constraint@mail.com",
@@ -251,6 +252,7 @@ class ActivityModelConstraintTest(TestCase):
         generation_request_2 = GenerationRequest.objects.create(user=user)
 
         Activity.objects.create(
+            user=user,
             generation_request=generation_request_1,
             platform=Platform.GITHUB,
             activity_date=date(2026, 4, 1),
@@ -260,19 +262,22 @@ class ActivityModelConstraintTest(TestCase):
         with transaction.atomic():
             with self.assertRaises(IntegrityError):
                 Activity.objects.create(
+                    user=user,
                     generation_request=generation_request_1,
                     platform=Platform.GITHUB,
                     activity_date=date(2026, 4, 1),
                     activity_count=10,
                 )
 
-        # Same platform/date is allowed for a different generation request.
-        Activity.objects.create(
-            generation_request=generation_request_2,
-            platform=Platform.GITHUB,
-            activity_date=date(2026, 4, 1),
-            activity_count=8,
-        )
+        with transaction.atomic():
+            with self.assertRaises(IntegrityError):
+                Activity.objects.create(
+                    user=user,
+                    generation_request=generation_request_2,
+                    platform=Platform.GITHUB,
+                    activity_date=date(2026, 4, 1),
+                    activity_count=8,
+                )
 
 
 class MetricsServiceTest(TestCase):
@@ -284,14 +289,17 @@ class MetricsServiceTest(TestCase):
         )
 
     def _create_generation_request(self):
-        return GenerationRequest.objects.create(user=self.user, status="success")
+        return GenerationRequest.objects.create(user=self.user, status="completed")
 
     def _add_activity(self, generation_request, platform, year, month, day, count):
-        return Activity.objects.create(
-            generation_request=generation_request,
+        return Activity.objects.update_or_create(
+            user=generation_request.user,
             platform=platform,
             activity_date=date(year, month, day),
-            activity_count=count,
+            defaults={
+                "generation_request": generation_request,
+                "activity_count": count,
+            },
         )
 
     def test_generation_metrics_use_distinct_active_days(self):
@@ -303,9 +311,9 @@ class MetricsServiceTest(TestCase):
         metrics = MetricsService.calculate_metrics(generation_request)
         generation_metrics = metrics["generation_metrics"]
 
-        self.assertEqual(generation_metrics["total_active_days"], 2)
-        self.assertEqual(generation_metrics["total_activities"], 6)
-        self.assertEqual(generation_metrics["longest_streak"], 2)
+        self.assertEqual(generation_metrics["gen_active_days"], 2)
+        self.assertEqual(generation_metrics["gen_total_activities"], 6)
+        self.assertEqual(generation_metrics["gen_longest_streak"], 2)
 
     def test_user_metrics_accumulate_across_generations(self):
         generation_request_1 = self._create_generation_request()
@@ -338,9 +346,10 @@ class MetricsViewTest(TestCase):
 
     def test_metrics_view_returns_user_and_generation_metrics(self):
         generation_request = GenerationRequest.objects.create(
-            user=self.user, status="success"
+            user=self.user, status="completed"
         )
         Activity.objects.create(
+            user=self.user,
             generation_request=generation_request,
             platform=Platform.GITHUB,
             activity_date=date(2026, 4, 26),
@@ -360,6 +369,6 @@ class MetricsViewTest(TestCase):
         self.assertIn("generation_metrics", response.data)
         self.assertEqual(
             response.data["generation_metrics"][0]["id"],
-            str(generation_request.id),
+            generation_request.id,
         )
         self.assertEqual(UserMetrics.objects.filter(user=self.user).count(), 1)
