@@ -1,50 +1,52 @@
 # ruff: noqa
 from pprint import pprint
-from ..platforms.github_service import GitHubService
-from ..platforms.codeforces_service import CodeforcesService
-from ..normalization import ActivityNormalization
+
+from ..platforms import CodeforcesClient, GitHubClient
 
 
-class GitHubServiceTest:
-    service = GitHubService()
+class GitHubClientTest:
+    client = GitHubClient()
 
     def test_all_apis(self):
         print("---------------- USER ----------------")
-        res = self.service.get_user_info("naga-ruthvik")
+        res = self.client.get_user_info("naga-ruthvik")
         pprint(res)
 
         print("---------------- REPO ----------------")
-        res = self.service.fetch_repos("naga-ruthvik")
+        res = self.client.get_repos("naga-ruthvik")
         pprint(res)
 
         print("---------------- VALIDATE ----------------")
-        res = self.service.validate_user("naga-ruthvik")
+        res = self.client.get_user_exists("naga-ruthvik")
         pprint(res)
 
         print("---------------- EVENTS ----------------")
-        res = self.service.fetch_events("naga-ruthvik")
+        res = self.client.get_events("naga-ruthvik")
+        pprint(res)
+
+        print("--------------- SUMMARY ---------------")
+        res = self.client.get_activity_summary("naga-ruthvik")
         pprint(res)
 
 
 class CodeforcesAPITest:
-    service = CodeforcesService()
-    normalization = ActivityNormalization()
+    client = CodeforcesClient()
 
     def test_all_apis(self):
         print("---------------- USER ----------------")
-        res = self.service.get_user_info("naga_ruthvik")
+        res = self.client.get_user_info("naga_ruthvik")
         pprint(res)
 
         print("---------------- VALIDATE ----------------")
-        res = self.service.validate_user("naga_ruthvik")
+        res = self.client.get_user_exists("naga_ruthvik")
         pprint(res)
 
         print("---------------- ACTIVITIES ----------------")
-        res = self.service.fetch_activities("naga_ruthvik")
+        res = self.client.get_activities("naga_ruthvik")
         pprint(res)
 
-        print("---------------NORMALIZATION-----------")
-        res = self.normalization.codeforces_activity_normalizer(res)
+        print("--------------- SUMMARY ---------------")
+        res = self.client.get_activity_summary("naga_ruthvik")
         pprint(res)
 
 
