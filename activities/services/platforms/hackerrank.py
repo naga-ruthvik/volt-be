@@ -64,15 +64,80 @@ class HackerRankClient:
         message = payload.get("message", "")
         return response.status_code == 403 and "rate limit" in message.lower()
 
-    def _get_total_questions_solved(self, badges_data: list[dict]) -> int:
-        total = 0
-        for badge in badges_data:
-            total += badge.get("solved", 0)
-        return total
+    def _calculate_percentage(
+        self,
+        current: int,
+        total: int,
+    ) -> float:
+        if total == 0:
+            return 0.0
 
-    def _get_questions_by_badge(self, badges_data: list[dict]) -> dict:
-        # TODO: iterate over badges to get the data
-        pass
+        return round((current / total) * 100, 2)
+
+    def _build_metrics(
+        self,
+        models: list[dict],
+    ) -> dict:
+        questions_solved = 0
+        current_points = 0
+        total_points = 0
+        total_challenges = 0
+        stars_earned = 0
+        possible_stars = 0
+        best_rank = None
+        badges = []
+
+        for model in models:
+            questions_solved += model.get("solved", 0)
+            current_points += model.get("current_points", 0)
+            total_points += model.get("total_points", 0)
+            total_challenges += model.get("total_challenges", 0)
+            stars_earned += model.get("stars", 0)
+            possible_stars += model.get("total_stars", 0)
+
+            rank = model.get("hacker_rank")
+
+            if rank is not None and (best_rank is None or rank < best_rank):
+                best_rank = rank
+
+            badges.append(
+                {
+                    "name": model.get("badge_name"),
+                    "type": model.get("badge_type"),
+                    "category": model.get("category_name"),
+                    "stars": model.get("stars", 0),
+                    "max_stars": model.get("total_stars", 0),
+                    "points": model.get("current_points", 0),
+                    "max_points": model.get("total_points", 0),
+                    "solved": model.get("solved", 0),
+                    "total_challenges": model.get(
+                        "total_challenges",
+                        0,
+                    ),
+                    "rank": model.get("hacker_rank"),
+                    "level": model.get("level"),
+                }
+            )
+
+        return {
+            "questions_solved": questions_solved,
+            "points_earned": current_points,
+            "total_available_points": total_points,
+            "total_challenges": total_challenges,
+            "stars_earned": stars_earned,
+            "possible_stars": possible_stars,
+            "best_rank": best_rank,
+            "domains_count": len(models),
+            "points_completion_percentage": self._calculate_percentage(
+                current_points,
+                total_points,
+            ),
+            "star_completion_percentage": self._calculate_percentage(
+                stars_earned,
+                possible_stars,
+            ),
+            "badges": badges,
+        }
 
     # public methods
     def get_user_info(self, username: str) -> dict:
@@ -114,7 +179,7 @@ class HackerRankClient:
         except (PlatformTimeoutError, PlatformNetworkError):
             return False
 
-    def get_user_activities(self, username: str) -> dict:
+    def get_user_metrics(self, username: str) -> dict:
         url = f"{HACKER_RANK_API}{username}/badges"
         response = self._get(url)
         if response.status_code == 404:
@@ -134,12 +199,8 @@ class HackerRankClient:
             )
         response_data = response.json()
         data = response_data.get("models")
-        total_questions_solved: int = self._get_total_questions_solved(data)
-        # questions, points, name of each badge
-        # badges_details: dict = self._get_questions_by_badge(data)
+        dashboard_metrics = self._build_metrics(data)
+        return _success_payload(username, data=dashboard_metrics)
 
-        normalized_data = {
-            "total_questions_solved": total_questions_solved,
-            # "badges": badges_details,
-        }
-        return _success_payload(username, data=normalized_data)
+    def hackerrank_scraper(self, username: str):
+        pass
