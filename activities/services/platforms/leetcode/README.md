@@ -5,7 +5,7 @@ Minimal usage example for the LeetCode GraphQL client.
 ## Quick Start
 
 ```python
-from activities.services.platforms.leetcode.client import LeetcodeClient
+from activities.services.platforms.leetcode import LeetcodeClient
 
 client = LeetcodeClient()
 profile = client.get_user_profile("example_user")

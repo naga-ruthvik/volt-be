@@ -20,22 +20,24 @@ GITHUB_API = os.getenv("GITHUB_API")
 def _error_payload(platform: str, error_type: str, message: str, details=None) -> dict:
     return {
         "status": "error",
-        "platform": platform,
+        "platform": "GITHUB",
         "error_type": error_type,
         "message": message,
         "details": details or {},
     }
 
 
-def _build_fallback_id(platform: str, username: str, timestamp: str, event_type: str) -> str:
+def _build_fallback_id(
+    platform: str, username: str, timestamp: str, event_type: str
+) -> str:
     input_str = f"{platform}_{username}_{timestamp}_{event_type}"
     return hashlib.md5(input_str.encode("utf-8")).hexdigest()
 
 
-def _success_payload(platform: str, username: str, data) -> dict:
+def _success_payload(username: str, data) -> dict:
     return {
         "status": "success",
-        "platform": platform,
+        "platform": "GITHUB",
         "username": username,
         "data": data,
     }
@@ -108,9 +110,13 @@ class GitHubClient:
             )
 
             if response.status_code == 404:
-                return _error_payload("github", "INVALID_USERNAME", "GitHub user not found")
+                return _error_payload(
+                    "github", "INVALID_USERNAME", "GitHub user not found"
+                )
             if self._is_rate_limited(response):
-                return _error_payload("github", "RATE_LIMIT", "GitHub rate limit exceeded")
+                return _error_payload(
+                    "github", "RATE_LIMIT", "GitHub rate limit exceeded"
+                )
             if response.status_code != 200:
                 return _error_payload("github", "UNKNOWN", "GitHub events fetch failed")
 
@@ -126,7 +132,9 @@ class GitHubClient:
             event_type = event.get("type", "event")
             event_id = event.get("id")
             if not event_id and created_at:
-                event_id = _build_fallback_id("github", username, created_at, event_type)
+                event_id = _build_fallback_id(
+                    "github", username, created_at, event_type
+                )
 
             normalized.append(
                 {
