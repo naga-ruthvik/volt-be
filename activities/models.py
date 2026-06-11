@@ -16,6 +16,8 @@ class PlatformAccount(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     platform = models.CharField(choices=Platform.choices, max_length=20)
     username = models.CharField(max_length=100)
+    # metadata for platform specific stats
+    metadata = models.JSONField(default=dict, blank=True)
     last_fetched = models.DateTimeField(null=True, blank=True)
     fetch_error = models.TextField(null=True, blank=True)
 
