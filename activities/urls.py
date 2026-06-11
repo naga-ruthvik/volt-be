@@ -6,6 +6,7 @@ from .views import (
     MetricsRetrieveView,
     PlatformListCreateView,
     PlatformUpdateDestroyView,
+    RetrieveHackerRankStatsView,
 )
 
 urlpatterns = [
@@ -26,4 +27,9 @@ urlpatterns = [
         name="activities-list",
     ),
     path("metrics/", MetricsRetrieveView.as_view(), name="metrics-view"),
+    path(
+        "metrics/hackerrank/",
+        RetrieveHackerRankStatsView.as_view(),
+        name="hackerrank-stats-view",
+    ),
 ]

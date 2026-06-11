@@ -1,3 +1,5 @@
+from importlib.metadata import metadata
+
 from django.shortcuts import get_object_or_404
 from django.utils.dateparse import parse_date
 
@@ -6,10 +8,11 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from .models import Activity, GenerationRequest, PlatformAccount, UserMetrics
+from .models import Activity, GenerationRequest, Platform, PlatformAccount, UserMetrics
 from .serializers import (
     ActivityListSerializer,
     GenerationMetricsSerializer,
+    HackerRankStatsSerializer,
     PlatformCreateSerializer,
     PlatformListSerializer,
     PlatformUpdateSerializer,
@@ -139,3 +142,14 @@ class MetricsRetrieveView(generics.GenericAPIView):
             ).data,
         }
         return Response(payload, status=status.HTTP_200_OK)
+
+
+class RetrieveHackerRankStatsView(generics.RetrieveAPIView):
+    serializer_class = HackerRankStatsSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_object(self):
+        return PlatformAccount.objects.get(
+            user=self.request.user,
+            platform=Platform.HACKERRANK,
+        )

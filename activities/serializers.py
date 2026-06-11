@@ -17,7 +17,12 @@ class PlatformCreateSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         request = self.context.get("request")
         user = getattr(request, "user", None)
-        if user and PlatformAccount.objects.filter(user=user, platform=attrs["platform"]).exists():
+        if (
+            user
+            and PlatformAccount.objects.filter(
+                user=user, platform=attrs["platform"]
+            ).exists()
+        ):
             raise serializers.ValidationError(
                 {"non_field_errors": ["Platform already exists for this user."]}
             )
@@ -67,3 +72,9 @@ class UserMetricsSerializer(serializers.ModelSerializer):
             "total_activities",
             "updated_at",
         ]
+
+
+class HackerRankStatsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PlatformAccount
+        fields = ["metadata"]

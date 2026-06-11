@@ -1,13 +1,20 @@
+import json
+from datetime import datetime
+from datetime import timezone as dt_timezone
+from importlib.metadata import metadata
+
 from django.db import transaction
 from django.utils import timezone
-
-import json
-from datetime import datetime, timezone as dt_timezone
 
 from activities.models import Platform, PlatformAccount
 from activities.services.activity_service import ActivityService
 from activities.services.metrics_service import MetricsService
-from activities.services.platforms import CodeforcesClient, GitHubClient, LeetcodeClient
+from activities.services.platforms import (
+    CodeforcesClient,
+    GitHubClient,
+    HackerRankClient,
+    LeetcodeClient,
+)
 
 
 class SyncService:
@@ -72,6 +79,22 @@ class SyncService:
         }
 
     @staticmethod
+    def sync_hackerrank(username: str):
+        client = HackerRankClient()
+        user_info = client.get_user_info(username)
+        if SyncService._is_error_payload(user_info):
+            return user_info
+        metrics = client.get_user_metrics(username)
+        if SyncService._is_error_payload(metrics):
+            return metrics
+        return {
+            "status": "success",
+            "platform": "hackerrank",
+            "username": username,
+            "data": metrics.get("data", {}),
+        }
+
+    @staticmethod
     def _is_error_payload(data) -> bool:
         return isinstance(data, dict) and data.get("status") == "error"
 
@@ -114,6 +137,15 @@ class SyncService:
                     )
                     continue
                 all_data.append((account, SyncService._unwrap_success(data)))
+            if account.platform == Platform.HACKERRANK:
+                # hackerrank doesn't have option to get the activities so just fill the metadata
+                hackerank_metrics = SyncService.sync_hackerrank(account.username)
+                if SyncService._is_error_payload(data):
+                    PlatformAccount.objects.filter(id=account.id).update(
+                        last_fetched=timezone.now(), fetch_error=data.get("message")
+                    )
+                    continue
+
         with transaction.atomic():
             for account, normalized_events in all_data:
                 ActivityService.bulk_save(
@@ -129,5 +161,12 @@ class SyncService:
             generation_request.status = "completed"
             generation_request.last_synced_at = timezone.now()
             generation_request.save(update_fields=["status", "last_synced_at"])
+
+            # update hackerrank metadata
+            hackerrank_metrics_data = hackerank_metrics.get("data", {})
+            PlatformAccount.objects.filter(
+                user=user, platform=Platform.HACKERRANK
+            ).update(metadata=hackerrank_metrics_data)
+
         with transaction.atomic():
             MetricsService.calculate_metrics(generation_request)
