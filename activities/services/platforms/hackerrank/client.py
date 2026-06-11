@@ -39,6 +39,11 @@ class HackerRankClient:
         except ValueError:
             return False
 
+    def is_user_found(self, username: str) -> bool:
+        url = f"{self.base_url}{username}"
+        response = self._get(url)
+        return response.status_code == 200
+
     def get_user_info(self, username: str) -> dict:
         url = f"{self.base_url}{username}"
         response = self._get(url)

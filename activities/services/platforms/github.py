@@ -34,7 +34,7 @@ def _build_fallback_id(
     return hashlib.md5(input_str.encode("utf-8")).hexdigest()
 
 
-def _success_payload(username: str, data) -> dict:
+def _success_payload(platform, username: str, data) -> dict:
     return {
         "status": "success",
         "platform": "GITHUB",
