@@ -5,7 +5,10 @@ description = "Backend code for volt"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "aiohttp>=3.14.1",
+    "bs4>=0.0.2",
     "django>=6.0.3",
+    "django-bolt>=0.8.1",
     "django-cors-headers>=4.9.0",
     "djangorestframework>=3.17.0",
     "djangorestframework-simplejwt>=5.5.1",
