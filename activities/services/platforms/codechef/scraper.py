@@ -11,16 +11,15 @@ logger = logging.getLogger(__name__)
 
 
 def success_payload(username, data):
-    return {"success": True, "username": username, "data": data}
+    return {"status": "success", "username": username, "data": data}
 
 
 def error_payload(error_type, message):
-    return {"success": False, "error_type": error_type, "message": message}
+    return {"status": "error", "error_type": error_type, "message": message}
 
 
 class CodeChefScraper:
     def __init__(self, timeout: int = 15):
-        # Aiohttp timeout prevents hanging requests
         self.timeout = aiohttp.ClientTimeout(total=timeout)
         self.headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
@@ -41,14 +40,11 @@ class CodeChefScraper:
             )
 
         try:
-            # Parsing HTML is CPU-bound, but for simple soup operations,
-            # standard execution is fine. For massive concurrency,
-            # consider wrapping this in asyncio.to_thread()
+            # TODO: consider wrapping this in asyncio.to_thread()
             dashboard_metrics = self._parse_html(html_content, username)
             return success_payload(username, data=dashboard_metrics)
 
         except Exception as e:
-            logger.error(f"Error parsing CodeChef HTML for {username}: {e}")
             return error_payload(
                 error_type="PARSE_FAILED",
                 message=f"Failed to parse profile structure for user: {username}. DOM might have changed.",
@@ -68,9 +64,7 @@ class CodeChefScraper:
                     if response.status == 200:
                         return await response.text()
                     else:
-                        logger.warning(
-                            f"CodeChef HTTP {response.status} for user {username}"
-                        )
+                        logger.warning(f"CodeChef returned status {response.status} for user {username}")
                         return None
         except asyncio.TimeoutError:
             logger.warning(f"CodeChef request timed out for user {username}")
@@ -148,7 +142,7 @@ class CodeChefScraper:
                 "globalRank": global_rank,
                 "countryRank": country_rank,
                 "totalSolved": total_solved,
+                "ratingHistory": rating_history,
             },
             "heatmap": heatmap_data,
-            "ratingHistory": rating_history,
         }

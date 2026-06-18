@@ -1,3 +1,4 @@
+from .codechef import CodeChefScraper
 from .codeforces import CodeforcesClient
 from .errors import PlatformNetworkError, PlatformTimeoutError
 from .github import GitHubClient
@@ -7,6 +8,7 @@ from .leetcode import LeetcodeClient
 __all__ = [
     "GitHubClient",
     "CodeforcesClient",
+    "CodeChefScraper",
     "LeetcodeClient",
     "HackerRankClient",
     "HackerRankScraper",

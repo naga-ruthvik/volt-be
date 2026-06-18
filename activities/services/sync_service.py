@@ -6,10 +6,13 @@ from importlib.metadata import metadata
 from django.db import transaction
 from django.utils import timezone
 
+from asgiref.sync import async_to_sync
+
 from activities.models import Platform, PlatformAccount
 from activities.services.activity_service import ActivityService
 from activities.services.metrics_service import MetricsService
 from activities.services.platforms import (
+    CodeChefScraper,
     CodeforcesClient,
     GitHubClient,
     HackerRankClient,
@@ -95,6 +98,19 @@ class SyncService:
         }
 
     @staticmethod
+    def sync_codechef(username: str):
+        client = CodeChefScraper()
+        codechef_response = async_to_sync(client.scrape_user_profile)(username)
+        if SyncService._is_error_payload(codechef_response):
+            return codechef_response
+        return {
+            "status": "success",
+            "platform": "codechef",
+            "username": username,
+            "data": codechef_response.get("data", {}),
+        }
+
+    @staticmethod
     def _is_error_payload(data) -> bool:
         return isinstance(data, dict) and data.get("status") == "error"
 
@@ -107,10 +123,12 @@ class SyncService:
     @staticmethod
     def sync_all_platforms(generation_request):
         user = generation_request.user
-
         platform_accounts = PlatformAccount.objects.filter(user=user)
 
         all_data = []
+        hackerank_resp = {}
+        codechef_metrics = {}
+
         # TODO: include all the platforms for syncing
         for account in platform_accounts:
             if account.platform == Platform.GITHUB:
@@ -129,6 +147,7 @@ class SyncService:
                     )
                     continue
                 all_data.append((account, SyncService._unwrap_success(data)))
+
             if account.platform == Platform.LEETCODE:
                 data = SyncService.sync_leetcode_data(account.username)
                 if SyncService._is_error_payload(data):
@@ -137,14 +156,26 @@ class SyncService:
                     )
                     continue
                 all_data.append((account, SyncService._unwrap_success(data)))
+
             if account.platform == Platform.HACKERRANK:
                 # hackerrank doesn't have option to get the activities so just fill the metadata
-                hackerank_metrics = SyncService.sync_hackerrank(account.username)
-                if SyncService._is_error_payload(data):
+                hackerank_resp = SyncService.sync_hackerrank(account.username)
+                if SyncService._is_error_payload(hackerank_resp):
                     PlatformAccount.objects.filter(id=account.id).update(
-                        last_fetched=timezone.now(), fetch_error=data.get("message")
+                        last_fetched=timezone.now(),
+                        fetch_error=hackerank_resp.get("message"),
                     )
-                    continue
+
+            if account.platform == Platform.CODECHEF:
+                codechef_data = SyncService.sync_codechef(account.username)
+                if SyncService._is_error_payload(codechef_data):
+                    PlatformAccount.objects.filter(id=account.id).update(
+                        last_fetched=timezone.now(),
+                        fetch_error=codechef_data.get("message"),
+                    )
+                codechef_metrics = codechef_data.get("data", {}).get("profile", {})
+                heatmap_data = codechef_data.get("data", {}).get("heatmap", [])
+                all_data.append((account, heatmap_data))
 
         with transaction.atomic():
             for account, normalized_events in all_data:
@@ -163,10 +194,14 @@ class SyncService:
             generation_request.save(update_fields=["status", "last_synced_at"])
 
             # update hackerrank metadata
-            hackerrank_metrics_data = hackerank_metrics.get("data", {})
+            hackerrank_metrics_data = hackerank_resp.get("data", {})
             PlatformAccount.objects.filter(
                 user=user, platform=Platform.HACKERRANK
             ).update(metadata=hackerrank_metrics_data)
+
+            PlatformAccount.objects.filter(
+                user=user, platform=Platform.CODECHEF
+            ).update(metadata=codechef_metrics)
 
         with transaction.atomic():
             MetricsService.calculate_metrics(generation_request)
