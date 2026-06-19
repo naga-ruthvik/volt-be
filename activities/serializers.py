@@ -78,3 +78,10 @@ class HackerRankStatsSerializer(serializers.ModelSerializer):
     class Meta:
         model = PlatformAccount
         fields = ["metadata"]
+
+
+class UserPlatformMetadataSerializer(serializers.Serializer):
+    platforms = serializers.DictField(
+        child=serializers.JSONField(),
+        read_only=True,
+    )

@@ -7,6 +7,7 @@ from .views import (
     PlatformListCreateView,
     PlatformUpdateDestroyView,
     RetrieveHackerRankStatsView,
+    UserPlatformMetadataListView,
 )
 
 urlpatterns = [
@@ -31,5 +32,10 @@ urlpatterns = [
         "metrics/hackerrank/",
         RetrieveHackerRankStatsView.as_view(),
         name="hackerrank-stats-view",
+    ),
+    path(
+        "platforms-metadata/",
+        UserPlatformMetadataListView.as_view(),
+        name="platform-metadata-view",
     ),
 ]

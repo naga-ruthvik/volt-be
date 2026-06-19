@@ -7,6 +7,7 @@ from rest_framework import generics, status
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from .models import Activity, GenerationRequest, Platform, PlatformAccount, UserMetrics
 from .serializers import (
@@ -17,7 +18,9 @@ from .serializers import (
     PlatformListSerializer,
     PlatformUpdateSerializer,
     UserMetricsSerializer,
+    UserPlatformMetadataSerializer,
 )
+from .services.metrics_service import MetricsService
 from .services.sync_service import SyncService
 
 
@@ -153,3 +156,13 @@ class RetrieveHackerRankStatsView(generics.RetrieveAPIView):
             user=self.request.user,
             platform=Platform.HACKERRANK,
         )
+
+
+class UserPlatformMetadataListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        platform_metadata = MetricsService.get_platform_metadata(self.request.user)
+        wrapped_payload = {"platforms": platform_metadata}
+        serializer = UserPlatformMetadataSerializer(instance=wrapped_payload)
+        return Response(serializer.data, status=status.HTTP_200_OK)

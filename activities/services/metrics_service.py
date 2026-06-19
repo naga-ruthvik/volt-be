@@ -6,6 +6,7 @@ from django.utils import timezone
 from activities.models import (
     Activity,
     GenerationRequest,
+    PlatformAccount,
     UserMetrics,
 )
 
@@ -60,7 +61,9 @@ class MetricsService:
             if (day_summary["total_count"] or 0) > 0
         ]
         current_streak, longest_streak = MetricsService._calculate_streaks(active_dates)
-        total_activities = sum(day_summary["total_count"] or 0 for day_summary in daily_totals)
+        total_activities = sum(
+            day_summary["total_count"] or 0 for day_summary in daily_totals
+        )
         metrics = {
             "gen_active_days": len(active_dates),
             "gen_longest_streak": longest_streak,
@@ -75,7 +78,9 @@ class MetricsService:
         user_metrics, _ = UserMetrics.objects.get_or_create(user=user)
 
         daily_totals = {}
-        for activity in Activity.objects.filter(user=user).order_by("activity_date", "id"):
+        for activity in Activity.objects.filter(user=user).order_by(
+            "activity_date", "id"
+        ):
             daily_totals[activity.activity_date] = (
                 daily_totals.get(activity.activity_date, 0) + activity.activity_count
             )
@@ -118,3 +123,13 @@ class MetricsService:
             "generation_metrics": generation_metrics,
             "user_metrics": user_metrics,
         }
+
+    @staticmethod
+    def get_platform_metadata(user):
+        platforms_metadata = PlatformAccount.objects.filter(user=user).values(
+            "platform", "metadata"
+        )
+        platform_data = {}
+        for entry in platforms_metadata:
+            platform_data[entry["platform"]] = entry["metadata"]
+        return platform_data
