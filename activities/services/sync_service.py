@@ -35,10 +35,18 @@ class SyncService:
     def sync_leetcode_data(username):
         leetcode_client = LeetcodeClient()
         profile_payload = leetcode_client.get_user_profile(username)
+        contest_info = leetcode_client.get_user_contest_ranking_info(username).get(
+            "data", {}
+        )
         if SyncService._is_error_payload(profile_payload):
             return profile_payload
 
-        submission_calendar = profile_payload.get("data", {}).get("submission_calendar")
+        leetcode_profile_data = profile_payload.get("data", {})
+        submission_calendar = leetcode_profile_data.get("submission_calendar")
+        leetcode_metadata = SyncService._get_leetcode_profile_metadata(
+            leetcode_profile_data
+        )
+        leetcode_metadata["contest"] = contest_info
         if not submission_calendar:
             return {
                 "status": "success",
@@ -72,13 +80,15 @@ class SyncService:
                     "count": int(count),
                 }
             )
-
+        data = {}
+        data["activity_summary"] = normalized
+        data["metadata"] = leetcode_metadata
         normalized.sort(key=lambda item: item.get("date") or "")
         return {
             "status": "success",
             "platform": "leetcode",
             "username": username,
-            "data": normalized,
+            "data": data,
         }
 
     @staticmethod
@@ -121,6 +131,25 @@ class SyncService:
         return data
 
     @staticmethod
+    def _get_leetcode_profile_metadata(profile_data):
+        leetcode_metadata = {}
+        leetcode_metadata["username"] = profile_data["username"]
+        leetcode_metadata["name"] = profile_data["name"]
+        leetcode_metadata["avatar"] = profile_data["avatar"]
+        leetcode_metadata["star_rating"] = profile_data["star_rating"]
+        leetcode_metadata["contributions"] = profile_data["contributions"]
+        leetcode_metadata["badges"] = profile_data["badges"]
+        total_submit_stats = profile_data["submit_stats"]["total"]
+        accepted_submit_stats = profile_data["submit_stats"]["accepted"]
+        submit_stats = {}
+        for stat in total_submit_stats:
+            submit_stats[stat["difficulty"]] = {"total": stat["count"]}
+        for stat in accepted_submit_stats:
+            submit_stats[stat["difficulty"]]["accepted"] = stat["count"]
+        leetcode_metadata["submit_stats"] = submit_stats
+        return leetcode_metadata
+
+    @staticmethod
     def sync_all_platforms(generation_request):
         user = generation_request.user
         platform_accounts = PlatformAccount.objects.filter(user=user)
@@ -155,7 +184,11 @@ class SyncService:
                         last_fetched=timezone.now(), fetch_error=data.get("message")
                     )
                     continue
-                all_data.append((account, SyncService._unwrap_success(data)))
+                leetcode_metadata = data.get("data", {}).get("metadata", {})
+                activity_summary = data.get("data", {}).get("activity_summary", [])
+                all_data.append(
+                    (account, SyncService._unwrap_success(activity_summary))
+                )
 
             if account.platform == Platform.HACKERRANK:
                 # hackerrank doesn't have option to get the activities so just fill the metadata
@@ -202,6 +235,9 @@ class SyncService:
             PlatformAccount.objects.filter(
                 user=user, platform=Platform.CODECHEF
             ).update(metadata=codechef_metrics)
+            PlatformAccount.objects.filter(
+                user=user, platform=Platform.LEETCODE
+            ).update(metadata=leetcode_metadata)
 
         with transaction.atomic():
             MetricsService.calculate_metrics(generation_request)
