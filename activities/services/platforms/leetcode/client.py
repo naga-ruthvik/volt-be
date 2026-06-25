@@ -1,13 +1,29 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import requests
 
 from ..errors import PlatformNetworkError, PlatformTimeoutError
-from .queries import *  # noqa: F403
+from .queries import (
+    AC_SUBMISSION_QUERY,
+    ALL_CONTESTS,
+    DAILY_PROBLEM_QUERY,
+    DISCUSS_COMMENTS_QUERY,
+    DISCUSS_TOPIC_QUERY,
+    GET_USER_PROFILE_QUERY,
+    LANGUAGE_STATS_QUERY,
+    OFFICIAL_SOLUTION_QUERY,
+    PROBLEM_LIST_QUERY,
+    SELECT_PROBLEM_QUERY,
+    SKILL_STATS_QUERY,
+    SUBMISSION_QUERY,
+    USER_CONTEST_RANKING_INFO_QUERY,
+    USER_PROFILE_CALENDAR_QUERY,
+    USER_QUESTION_PROGRESS_QUERY,
+)
 
 LEETCODE_USER_NOT_FOUND_MSG = "[LeetCode] API Error: User not found."
 LEETCODE_USERNAME_REQUIRED_MSG = "[LeetCode] API Error: Username is required."
@@ -44,7 +60,7 @@ def _build_fallback_id(
     platform: str, username: str, timestamp: str, event_type: str
 ) -> str:
     input_str = f"{platform}_{username}_{timestamp}_{event_type}"
-    return hashlib.md5(input_str.encode("utf-8")).hexdigest()
+    return hashlib.sha256(input_str.encode("utf-8")).hexdigest()
 
 
 def _normalize_username(username: str | None) -> str | None:
@@ -69,7 +85,7 @@ def _to_iso_timestamp(timestamp: str | int | None) -> str | None:
         ts_int = int(timestamp)
     except (TypeError, ValueError):
         return None
-    return datetime.fromtimestamp(ts_int, tz=timezone.utc).isoformat()
+    return datetime.fromtimestamp(ts_int, tz=UTC).isoformat()
 
 
 class LeetcodeClient:
@@ -162,16 +178,15 @@ class LeetcodeClient:
         matched_user = data.get("matchedUser", {})
         profile = matched_user.get("profile", {})
 
-        badges = []
-        for badge in matched_user.get("badges", []) or []:
-            badges.append(
-                {
-                    "id": str(badge.get("id")) if badge.get("id") is not None else None,
-                    "display_name": badge.get("displayName"),
-                    "icon": badge.get("icon"),
-                    "creation_date": badge.get("creationDate"),
-                }
-            )
+        badges = [
+            {
+                "id": str(badge.get("id")) if badge.get("id") is not None else None,
+                "display_name": badge.get("displayName"),
+                "icon": badge.get("icon"),
+                "creation_date": badge.get("creationDate"),
+            }
+            for badge in matched_user.get("badges", []) or []
+        ]
 
         upcoming_badges = []
         for badge in matched_user.get("upcomingBadges", []) or []:
