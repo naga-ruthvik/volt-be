@@ -147,17 +147,6 @@ class MetricsRetrieveView(generics.GenericAPIView):
         return Response(payload, status=status.HTTP_200_OK)
 
 
-class RetrieveHackerRankStatsView(generics.RetrieveAPIView):
-    serializer_class = HackerRankStatsSerializer
-    permission_classes = [IsAuthenticated]
-
-    def get_object(self):
-        return PlatformAccount.objects.get(
-            user=self.request.user,
-            platform=Platform.HACKERRANK,
-        )
-
-
 class UserPlatformMetadataListView(APIView):
     permission_classes = [IsAuthenticated]
 

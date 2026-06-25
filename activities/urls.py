@@ -29,11 +29,6 @@ urlpatterns = [
     ),
     path("metrics/", MetricsRetrieveView.as_view(), name="metrics-view"),
     path(
-        "metrics/hackerrank/",
-        RetrieveHackerRankStatsView.as_view(),
-        name="hackerrank-stats-view",
-    ),
-    path(
         "platforms-metadata/",
         UserPlatformMetadataListView.as_view(),
         name="platform-metadata-view",
