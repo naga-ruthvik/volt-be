@@ -3,7 +3,7 @@ import logging
 
 from playwright.async_api import async_playwright
 
-from .utils import HackerRankMetricsBuilder, error_payload, success_payload
+from .utils import build_metrics, error_payload, success_payload
 
 logger = logging.getLogger(__name__)
 
@@ -11,7 +11,6 @@ logger = logging.getLogger(__name__)
 class HackerRankScraper:
     def __init__(self, headless: bool = True):
         self.headless = headless
-        self.metrics_builder = HackerRankMetricsBuilder()
 
     async def scrape_user_dashboard(self, username: str) -> dict:
         captured_data = await self._scrape_hackerrank_stealth(username)
@@ -23,7 +22,7 @@ class HackerRankScraper:
                 message=f"Failed to capture badge data via browser network hooks for user: {username}",
             )
 
-        dashboard_metrics = self.metrics_builder.build(badges["models"])
+        dashboard_metrics = build_metrics(badges["models"])
         return success_payload(username, data=dashboard_metrics)
 
     async def _scrape_hackerrank_stealth(self, username: str) -> dict:
@@ -59,7 +58,9 @@ class HackerRankScraper:
 
             try:
                 # Use domcontentloaded to ensure standard scripts are running before we wait for selectors
-                await page.goto(profile_url, wait_until="domcontentloaded", timeout=30000)
+                await page.goto(
+                    profile_url, wait_until="domcontentloaded", timeout=30000
+                )
                 await page.wait_for_selector("text=My Badges", timeout=15000)
 
                 # Scroll to ensure all lazy background calls are triggered

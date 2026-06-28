@@ -1,7 +1,7 @@
 import requests
 
 from ..errors import PlatformNetworkError, PlatformTimeoutError
-from .utils import HackerRankMetricsBuilder, error_payload, success_payload
+from .utils import _calculate_percentage, build_metrics, error_payload, success_payload
 
 HACKER_RANK_API = "https://www.hackerrank.com/rest/hackers/"
 HACKER_RANK_HEADERS = {
@@ -13,7 +13,6 @@ class HackerRankClient:
     def __init__(self, base_url: str | None = None, timeout: tuple[int, int] = (5, 10)):
         self.base_url = base_url or HACKER_RANK_API
         self.timeout = timeout
-        self.metrics_builder = HackerRankMetricsBuilder()
 
     def _get(self, url: str, params: dict | None = None) -> requests.Response:
         try:
@@ -79,5 +78,5 @@ class HackerRankClient:
             return error_payload("UNKNOWN", "Unable to fetch metrics.")
 
         data = response.json().get("models", [])
-        dashboard_metrics = self.metrics_builder.build(data)
+        dashboard_metrics = build_metrics(data)
         return success_payload(username, data=dashboard_metrics)
