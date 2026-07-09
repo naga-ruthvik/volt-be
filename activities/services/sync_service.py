@@ -1,7 +1,7 @@
 import json
+import logging
 from datetime import datetime
 from datetime import timezone as dt_timezone
-from importlib.metadata import metadata
 
 from django.db import transaction
 from django.utils import timezone
@@ -19,8 +19,14 @@ from activities.services.platforms import (
     LeetcodeClient,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class SyncService:
+    # ------------------------------------------------------------------ #
+    # Public per-platform fetch methods                                   #
+    # ------------------------------------------------------------------ #
+
     @staticmethod
     def sync_github_data(username):
         github_client = GitHubClient()
@@ -35,11 +41,24 @@ class SyncService:
     def sync_leetcode_data(username):
         leetcode_client = LeetcodeClient()
         profile_payload = leetcode_client.get_user_profile(username)
-        contest_info = leetcode_client.get_user_contest_ranking_info(username).get(
-            "data", {}
-        )
+
+        # Check the profile before making any further API calls.
         if SyncService._is_error_payload(profile_payload):
             return profile_payload
+
+        # Contest ranking is fetched only after confirming the profile succeeded
+        # so we don't waste a round-trip on the error path.
+        # It is non-fatal: a missing or errored contest response is logged and
+        # replaced with an empty dict so the rest of the metadata is still usable.
+        try:
+            contest_raw = leetcode_client.get_user_contest_ranking_info(username)
+            contest_info = contest_raw.get("data", {})
+        except Exception:
+            logger.warning(
+                "Failed to fetch LeetCode contest ranking for '%s'; skipping.",
+                username,
+            )
+            contest_info = {}
 
         leetcode_profile_data = profile_payload.get("data", {})
         submission_calendar = leetcode_profile_data.get("submission_calendar")
@@ -47,12 +66,15 @@ class SyncService:
             leetcode_profile_data
         )
         leetcode_metadata["contest"] = contest_info
+
+        # LeetCode returns an empty calendar for brand-new accounts; treat it
+        # as a valid success with no activity rows rather than an error.
         if not submission_calendar:
             return {
                 "status": "success",
                 "platform": "leetcode",
                 "username": username,
-                "data": [],
+                "data": {"activity_summary": [], "metadata": leetcode_metadata},
             }
 
         try:
@@ -71,6 +93,7 @@ class SyncService:
             try:
                 ts_int = int(timestamp_str)
             except (TypeError, ValueError):
+                # Skip any malformed keys rather than aborting the whole sync.
                 continue
             date = datetime.fromtimestamp(ts_int, tz=dt_timezone.utc).date().isoformat()
             normalized.append(
@@ -80,19 +103,22 @@ class SyncService:
                     "count": int(count),
                 }
             )
-        data = {}
-        data["activity_summary"] = normalized
-        data["metadata"] = leetcode_metadata
+
+        # Sort before packaging so callers always receive ordered data.
         normalized.sort(key=lambda item: item.get("date") or "")
+
         return {
             "status": "success",
             "platform": "leetcode",
             "username": username,
-            "data": data,
+            "data": {
+                "activity_summary": normalized,
+                "metadata": leetcode_metadata,
+            },
         }
 
     @staticmethod
-    def sync_hackerrank(username: str):
+    def sync_hackerrank_data(username: str):
         client = HackerRankClient()
         user_info = client.get_user_info(username)
         if SyncService._is_error_payload(user_info):
@@ -108,7 +134,7 @@ class SyncService:
         }
 
     @staticmethod
-    def sync_codechef(username: str):
+    def sync_codechef_data(username: str):
         client = CodeChefScraper()
         codechef_response = async_to_sync(client.scrape_user_profile)(username)
         if SyncService._is_error_payload(codechef_response):
@@ -119,6 +145,168 @@ class SyncService:
             "username": username,
             "data": codechef_response.get("data", {}),
         }
+
+    # ------------------------------------------------------------------ #
+    # Orchestration                                                        #
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def sync_all_platforms(generation_request):
+        user = generation_request.user
+        platform_accounts = PlatformAccount.objects.filter(user=user)
+
+        all_data, platform_metadata = SyncService._fetch_all_platform_data(
+            platform_accounts
+        )
+
+        # Single atomic block: if metrics calculation fails, the activity rows,
+        # metadata updates, and the "completed" status are all rolled back together.
+        # A GenerationRequest should never be marked completed without valid metrics.
+        with transaction.atomic():
+            SyncService._persist_activity_data(generation_request, all_data)
+            SyncService._persist_metadata(user, generation_request, platform_metadata)
+            MetricsService.calculate_metrics(generation_request)
+
+    # ------------------------------------------------------------------ #
+    # Private helpers                                                      #
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _fetch_all_platform_data(platform_accounts):
+        """
+        Iterate over a user's linked accounts and fetch raw data from each
+        platform client.
+
+        Returns:
+            all_data        – list of (account, normalized_events) tuples ready
+                              for bulk_save.
+            platform_metadata – dict of per-platform metadata keyed by Platform
+                              value (e.g. "leetcode", "hackerrank", "codechef").
+        """
+        all_data = []
+        # Keyed by Platform value string; populated only when a platform
+        # successfully returns metadata worth storing on PlatformAccount.
+        platform_metadata = {}
+
+        for account in platform_accounts:
+            # Wrap each platform sync in try/except so a network error or
+            # unexpected response shape from one platform is isolated to that
+            # account — it won't abort the remaining platforms in the batch.
+            try:
+                if account.platform == Platform.GITHUB:
+                    data = SyncService.sync_github_data(account.username)
+                    if SyncService._is_error_payload(data):
+                        SyncService._mark_account_error(account, data.get("message"))
+                        continue
+                    all_data.append((account, SyncService._unwrap_success(data)))
+
+                elif account.platform == Platform.CODEFORCES:
+                    data = SyncService.sync_codeforces_data(account.username)
+                    if SyncService._is_error_payload(data):
+                        SyncService._mark_account_error(account, data.get("message"))
+                        continue
+                    all_data.append((account, SyncService._unwrap_success(data)))
+
+                elif account.platform == Platform.LEETCODE:
+                    data = SyncService.sync_leetcode_data(account.username)
+                    if SyncService._is_error_payload(data):
+                        SyncService._mark_account_error(account, data.get("message"))
+                        continue
+                    inner = data.get("data", {})
+                    all_data.append((account, inner.get("activity_summary", [])))
+                    platform_metadata[Platform.LEETCODE] = inner.get("metadata", {})
+
+                elif account.platform == Platform.HACKERRANK:
+                    # HackerRank has no public activity timeline, so we only
+                    # capture metadata (questions solved, badges, etc.).
+                    hackerrank_resp = SyncService.sync_hackerrank_data(account.username)
+                    if SyncService._is_error_payload(hackerrank_resp):
+                        SyncService._mark_account_error(
+                            account, hackerrank_resp.get("message")
+                        )
+                        continue
+                    platform_metadata[Platform.HACKERRANK] = hackerrank_resp.get(
+                        "data", {}
+                    )
+
+                elif account.platform == Platform.CODECHEF:
+                    codechef_data = SyncService.sync_codechef_data(account.username)
+                    if SyncService._is_error_payload(codechef_data):
+                        SyncService._mark_account_error(
+                            account, codechef_data.get("message")
+                        )
+                        continue
+                    inner = codechef_data.get("data", {})
+                    platform_metadata[Platform.CODECHEF] = inner.get("profile", {})
+                    all_data.append((account, inner.get("heatmap", [])))
+
+            except Exception as exc:
+                logger.exception(
+                    "Unexpected error syncing %s account '%s': %s",
+                    account.platform,
+                    account.username,
+                    exc,
+                )
+                SyncService._mark_account_error(account, str(exc))
+
+        return all_data, platform_metadata
+
+    @staticmethod
+    def _persist_activity_data(generation_request, all_data):
+        """Bulk-save activity rows and mark each account as successfully synced."""
+        for account, normalized_events in all_data:
+            ActivityService.bulk_save(
+                generation_request,
+                normalized_events,
+                platform=account.platform,
+            )
+            PlatformAccount.objects.filter(id=account.id).update(
+                last_fetched=timezone.now(),
+                fetch_error=None,
+            )
+
+    @staticmethod
+    def _persist_metadata(user, generation_request, platform_metadata):
+        """
+        Write per-platform metadata back to PlatformAccount rows and mark the
+        GenerationRequest as completed.
+
+        Only updates rows for platforms that actually returned metadata this
+        run — platforms with no data (e.g. not linked, or errored) are left
+        untouched.
+        """
+        generation_request.status = "completed"
+        generation_request.last_synced_at = timezone.now()
+        generation_request.save(update_fields=["status", "last_synced_at"])
+
+        if Platform.HACKERRANK in platform_metadata:
+            PlatformAccount.objects.filter(
+                user=user, platform=Platform.HACKERRANK
+            ).update(metadata=platform_metadata[Platform.HACKERRANK])
+
+        if Platform.CODECHEF in platform_metadata:
+            PlatformAccount.objects.filter(
+                user=user, platform=Platform.CODECHEF
+            ).update(metadata=platform_metadata[Platform.CODECHEF])
+
+        if Platform.LEETCODE in platform_metadata:
+            PlatformAccount.objects.filter(
+                user=user, platform=Platform.LEETCODE
+            ).update(metadata=platform_metadata[Platform.LEETCODE])
+
+    @staticmethod
+    def _mark_account_error(account, message: str):
+        """Record a fetch failure on a PlatformAccount without raising."""
+        logger.warning(
+            "Sync failed for %s account '%s': %s",
+            account.platform,
+            account.username,
+            message,
+        )
+        PlatformAccount.objects.filter(id=account.id).update(
+            last_fetched=timezone.now(),
+            fetch_error=message,
+        )
 
     @staticmethod
     def _is_error_payload(data) -> bool:
@@ -132,112 +320,26 @@ class SyncService:
 
     @staticmethod
     def _get_leetcode_profile_metadata(profile_data):
-        leetcode_metadata = {}
-        leetcode_metadata["username"] = profile_data["username"]
-        leetcode_metadata["name"] = profile_data["name"]
-        leetcode_metadata["avatar"] = profile_data["avatar"]
-        leetcode_metadata["star_rating"] = profile_data["star_rating"]
-        leetcode_metadata["contributions"] = profile_data["contributions"]
-        leetcode_metadata["badges"] = profile_data["badges"]
-        total_submit_stats = profile_data["submit_stats"]["total"]
-        accepted_submit_stats = profile_data["submit_stats"]["accepted"]
+        # Restructure the flat submit_stats lists into a difficulty-keyed dict
+        # so downstream consumers can do O(1) lookups by difficulty level.
+        # Use .get() throughout: a partial API response should degrade gracefully
+        # rather than raising a KeyError that crashes the whole sync batch.
         submit_stats = {}
-        for stat in total_submit_stats:
-            submit_stats[stat["difficulty"]] = {"total": stat["count"]}
-        for stat in accepted_submit_stats:
-            submit_stats[stat["difficulty"]]["accepted"] = stat["count"]
-        leetcode_metadata["submit_stats"] = submit_stats
-        return leetcode_metadata
+        for stat in profile_data.get("submit_stats", {}).get("total", []):
+            difficulty = stat.get("difficulty")
+            if difficulty is not None:
+                submit_stats[difficulty] = {"total": stat.get("count", 0)}
+        for stat in profile_data.get("submit_stats", {}).get("accepted", []):
+            difficulty = stat.get("difficulty")
+            if difficulty in submit_stats:
+                submit_stats[difficulty]["accepted"] = stat.get("count", 0)
 
-    @staticmethod
-    def sync_all_platforms(generation_request):
-        user = generation_request.user
-        platform_accounts = PlatformAccount.objects.filter(user=user)
-
-        all_data = []
-        hackerank_resp = {}
-        codechef_metrics = {}
-
-        # TODO: include all the platforms for syncing
-        for account in platform_accounts:
-            if account.platform == Platform.GITHUB:
-                data = SyncService.sync_github_data(account.username)
-                if SyncService._is_error_payload(data):
-                    PlatformAccount.objects.filter(id=account.id).update(
-                        last_fetched=timezone.now(), fetch_error=data.get("message")
-                    )
-                    continue
-                all_data.append((account, SyncService._unwrap_success(data)))
-            if account.platform == Platform.CODEFORCES:
-                data = SyncService.sync_codeforces_data(account.username)
-                if SyncService._is_error_payload(data):
-                    PlatformAccount.objects.filter(id=account.id).update(
-                        last_fetched=timezone.now(), fetch_error=data.get("message")
-                    )
-                    continue
-                all_data.append((account, SyncService._unwrap_success(data)))
-
-            if account.platform == Platform.LEETCODE:
-                data = SyncService.sync_leetcode_data(account.username)
-                if SyncService._is_error_payload(data):
-                    PlatformAccount.objects.filter(id=account.id).update(
-                        last_fetched=timezone.now(), fetch_error=data.get("message")
-                    )
-                    continue
-                leetcode_metadata = data.get("data", {}).get("metadata", {})
-                activity_summary = data.get("data", {}).get("activity_summary", [])
-                all_data.append(
-                    (account, SyncService._unwrap_success(activity_summary))
-                )
-
-            if account.platform == Platform.HACKERRANK:
-                # hackerrank doesn't have option to get the activities so just fill the metadata
-                hackerank_resp = SyncService.sync_hackerrank(account.username)
-                if SyncService._is_error_payload(hackerank_resp):
-                    PlatformAccount.objects.filter(id=account.id).update(
-                        last_fetched=timezone.now(),
-                        fetch_error=hackerank_resp.get("message"),
-                    )
-
-            if account.platform == Platform.CODECHEF:
-                codechef_data = SyncService.sync_codechef(account.username)
-                if SyncService._is_error_payload(codechef_data):
-                    PlatformAccount.objects.filter(id=account.id).update(
-                        last_fetched=timezone.now(),
-                        fetch_error=codechef_data.get("message"),
-                    )
-                codechef_metrics = codechef_data.get("data", {}).get("profile", {})
-                heatmap_data = codechef_data.get("data", {}).get("heatmap", [])
-                all_data.append((account, heatmap_data))
-
-        with transaction.atomic():
-            for account, normalized_events in all_data:
-                ActivityService.bulk_save(
-                    generation_request,
-                    normalized_events,
-                    platform=account.platform,
-                )
-
-                PlatformAccount.objects.filter(id=account.id).update(
-                    last_fetched=timezone.now(),
-                    fetch_error=None,
-                )
-            generation_request.status = "completed"
-            generation_request.last_synced_at = timezone.now()
-            generation_request.save(update_fields=["status", "last_synced_at"])
-
-            # update hackerrank metadata
-            hackerrank_metrics_data = hackerank_resp.get("data", {})
-            PlatformAccount.objects.filter(
-                user=user, platform=Platform.HACKERRANK
-            ).update(metadata=hackerrank_metrics_data)
-
-            PlatformAccount.objects.filter(
-                user=user, platform=Platform.CODECHEF
-            ).update(metadata=codechef_metrics)
-            PlatformAccount.objects.filter(
-                user=user, platform=Platform.LEETCODE
-            ).update(metadata=leetcode_metadata)
-
-        with transaction.atomic():
-            MetricsService.calculate_metrics(generation_request)
+        return {
+            "username": profile_data.get("username"),
+            "name": profile_data.get("name"),
+            "avatar": profile_data.get("avatar"),
+            "star_rating": profile_data.get("star_rating"),
+            "contributions": profile_data.get("contributions"),
+            "badges": profile_data.get("badges", []),
+            "submit_stats": submit_stats,
+        }
