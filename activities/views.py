@@ -13,7 +13,6 @@ from .models import Activity, GenerationRequest, Platform, PlatformAccount, User
 from .serializers import (
     ActivityListSerializer,
     GenerationMetricsSerializer,
-    HackerRankStatsSerializer,
     PlatformCreateSerializer,
     PlatformListSerializer,
     PlatformUpdateSerializer,

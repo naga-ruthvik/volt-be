@@ -6,7 +6,6 @@ from .views import (
     MetricsRetrieveView,
     PlatformListCreateView,
     PlatformUpdateDestroyView,
-    RetrieveHackerRankStatsView,
     UserPlatformMetadataListView,
 )
 
