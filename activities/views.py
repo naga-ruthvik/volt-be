@@ -125,22 +125,18 @@ class MetricsRetrieveView(generics.GenericAPIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
-        try:
-            user_metrics = UserMetrics.objects.get(user=self.request.user)
-            generation_metrics = (
-                GenerationRequest.objects.filter(user=self.request.user)
-                .order_by("-created_at")
-                .all()
-            )
-        except UserMetrics.DoesNotExist:
-            return Response(
-                {"error": "User metrics not found."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+        user_metrics_qs = UserMetrics.objects.filter(user=request.user)
+        generation_metrics_qs = GenerationRequest.objects.filter(
+            user=request.user
+        ).order_by("-created_at")
+
+        user_metrics = user_metrics_qs.first()
         payload = {
-            "user_metrics": UserMetricsSerializer(user_metrics).data,
+            "user_metrics": UserMetricsSerializer(user_metrics).data
+            if user_metrics
+            else None,
             "generation_metrics": GenerationMetricsSerializer(
-                generation_metrics, many=True
+                generation_metrics_qs, many=True
             ).data,
         }
         return Response(payload, status=status.HTTP_200_OK)

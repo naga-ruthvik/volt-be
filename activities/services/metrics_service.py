@@ -6,6 +6,7 @@ from django.utils import timezone
 from activities.models import (
     Activity,
     GenerationRequest,
+    Platform,
     PlatformAccount,
     UserMetrics,
 )
@@ -116,7 +117,7 @@ class MetricsService:
         }
 
     @staticmethod
-    def calculate_metrics(generation_request):
+    def calculate_activity_metrics(generation_request):
         generation_metrics = MetricsService._generation_metrics(generation_request)
         user_metrics = MetricsService._user_metrics(generation_request)
         return {
@@ -133,3 +134,52 @@ class MetricsService:
         for entry in platforms_metadata:
             platform_data[entry["platform"]] = entry["metadata"]
         return platform_data
+
+    @staticmethod
+    def calculate_cumulative_platform_metrics(platform_metrics: list) -> dict[str, int]:
+        cumulative_metrics = {
+            "total_questions_solved": 0,
+            "total_easy_questions_solved": 0,
+            "total_medium_questions_solved": 0,
+            "total_hard_questions_solved": 0,
+            "total_contests": 0,
+        }
+        # platform_metrics is expected to be a dict keyed by platform value
+        # (e.g. "leetcode", "codechef") with the platform-specific metadata
+        # as the value. Iterate items and accumulate safely.
+        for platform, pdata in (platform_metrics or {}).items():
+            if platform == Platform.LEETCODE:
+                leetcode = pdata or {}
+                submit_stats = leetcode.get("submit_stats", {})
+                cumulative_metrics["total_questions_solved"] += (
+                    submit_stats.get("All", {}).get("accepted", 0)
+                )
+                cumulative_metrics["total_easy_questions_solved"] += (
+                    submit_stats.get("Easy", {}).get("accepted", 0)
+                )
+                cumulative_metrics["total_medium_questions_solved"] += (
+                    submit_stats.get("Medium", {}).get("accepted", 0)
+                )
+                cumulative_metrics["total_hard_questions_solved"] += (
+                    submit_stats.get("Hard", {}).get("accepted", 0)
+                )
+                cumulative_metrics["total_contests"] += len(
+                    leetcode.get("contests", {}).get("history", [])
+                )
+
+            elif platform == Platform.CODECHEF:
+                codechef = pdata or {}
+                cumulative_metrics["total_questions_solved"] += codechef.get(
+                    "totalSolved", 0
+                )
+                cumulative_metrics["total_contests"] += len(
+                    codechef.get("ratingHistory", [])
+                )
+
+            elif platform == Platform.HACKERRANK:
+                hackerrank = pdata or {}
+                cumulative_metrics["total_questions_solved"] += hackerrank.get(
+                    "questions_solved", 0
+                )
+
+        return cumulative_metrics

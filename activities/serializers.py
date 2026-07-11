@@ -70,14 +70,13 @@ class UserMetricsSerializer(serializers.ModelSerializer):
             "current_streak",
             "longest_streak",
             "total_activities",
+            "total_questions_solved",
+            "easy_questions_solved",
+            "medium_questions_solved",
+            "hard_questions_solved",
+            "total_contests",
             "updated_at",
         ]
-
-
-class HackerRankStatsSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = PlatformAccount
-        fields = ["metadata"]
 
 
 class UserPlatformMetadataSerializer(serializers.Serializer):

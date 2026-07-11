@@ -8,7 +8,7 @@ from django.utils import timezone
 
 from asgiref.sync import async_to_sync
 
-from activities.models import Platform, PlatformAccount
+from activities.models import Platform, PlatformAccount, UserMetrics
 from activities.services.activity_service import ActivityService
 from activities.services.metrics_service import MetricsService
 from activities.services.platforms import (
@@ -45,11 +45,6 @@ class SyncService:
         # Check the profile before making any further API calls.
         if SyncService._is_error_payload(profile_payload):
             return profile_payload
-
-        # Contest ranking is fetched only after confirming the profile succeeded
-        # so we don't waste a round-trip on the error path.
-        # It is non-fatal: a missing or errored contest response is logged and
-        # replaced with an empty dict so the rest of the metadata is still usable.
         try:
             contest_raw = leetcode_client.get_user_contest_ranking_info(username)
             contest_info = contest_raw.get("data", {})
@@ -66,9 +61,6 @@ class SyncService:
             leetcode_profile_data
         )
         leetcode_metadata["contest"] = contest_info
-
-        # LeetCode returns an empty calendar for brand-new accounts; treat it
-        # as a valid success with no activity rows rather than an error.
         if not submission_calendar:
             return {
                 "status": "success",
@@ -93,7 +85,6 @@ class SyncService:
             try:
                 ts_int = int(timestamp_str)
             except (TypeError, ValueError):
-                # Skip any malformed keys rather than aborting the whole sync.
                 continue
             date = datetime.fromtimestamp(ts_int, tz=dt_timezone.utc).date().isoformat()
             normalized.append(
@@ -104,7 +95,6 @@ class SyncService:
                 }
             )
 
-        # Sort before packaging so callers always receive ordered data.
         normalized.sort(key=lambda item: item.get("date") or "")
 
         return {
@@ -158,14 +148,18 @@ class SyncService:
         all_data, platform_metadata = SyncService._fetch_all_platform_data(
             platform_accounts
         )
-
-        # Single atomic block: if metrics calculation fails, the activity rows,
-        # metadata updates, and the "completed" status are all rolled back together.
-        # A GenerationRequest should never be marked completed without valid metrics.
+        cumulative_metrics = MetricsService.calculate_cumulative_platform_metrics(
+            platform_metadata
+        )
         with transaction.atomic():
             SyncService._persist_activity_data(generation_request, all_data)
             SyncService._persist_metadata(user, generation_request, platform_metadata)
-            MetricsService.calculate_metrics(generation_request)
+            activity_metrics = MetricsService.calculate_activity_metrics(
+                generation_request
+            )
+            SyncService._persist_metrics_data(
+                user, activity_metrics.get("user_metrics", {}), cumulative_metrics
+            )
 
     # ------------------------------------------------------------------ #
     # Private helpers                                                      #
@@ -295,6 +289,43 @@ class SyncService:
             ).update(metadata=platform_metadata[Platform.LEETCODE])
 
     @staticmethod
+    def _persist_metrics_data(user, activity_metrics, cumulative_metrics):
+        """
+        Persist calculated metrics to the UserMetrics model.
+
+        Args:
+            user: The user instance to update metrics for.
+            activity_metrics: Dict containing activity-based metrics (streaks, active days, etc.).
+            cumulative_metrics: Dict containing platform-aggregated metrics (questions solved, contests, etc.).
+        """
+        # activity metrics
+        total_active_days = activity_metrics.get("total_active_days", 0)
+        current_streak = activity_metrics.get("current_streak", 0)
+        longest_streak = activity_metrics.get("longest_streak", 0)
+        total_activities = activity_metrics.get("total_activities", 0)
+
+        # cumulative platform metrics
+        total_questions_solved = cumulative_metrics.get("total_questions_solved", 0)
+        easy_questions_solved = cumulative_metrics.get("total_easy_questions_solved", 0)
+        medium_questions_solved = cumulative_metrics.get(
+            "total_medium_questions_solved", 0
+        )
+        hard_questions_solved = cumulative_metrics.get("total_hard_questions_solved", 0)
+        total_contests = cumulative_metrics.get("total_contests", 0)
+
+        UserMetrics.objects.filter(user=user).update(
+            total_active_days=total_active_days,
+            current_streak=current_streak,
+            total_activities=total_activities,
+            longest_streak=longest_streak,
+            total_contests=total_contests,
+            total_questions_solved=total_questions_solved,
+            easy_questions_solved=easy_questions_solved,
+            medium_questions_solved=medium_questions_solved,
+            hard_questions_solved=hard_questions_solved,
+        )
+
+    @staticmethod
     def _mark_account_error(account, message: str):
         """Record a fetch failure on a PlatformAccount without raising."""
         logger.warning(
@@ -320,10 +351,6 @@ class SyncService:
 
     @staticmethod
     def _get_leetcode_profile_metadata(profile_data):
-        # Restructure the flat submit_stats lists into a difficulty-keyed dict
-        # so downstream consumers can do O(1) lookups by difficulty level.
-        # Use .get() throughout: a partial API response should degrade gracefully
-        # rather than raising a KeyError that crashes the whole sync batch.
         submit_stats = {}
         for stat in profile_data.get("submit_stats", {}).get("total", []):
             difficulty = stat.get("difficulty")

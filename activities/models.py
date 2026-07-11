@@ -88,6 +88,11 @@ class UserMetrics(models.Model):
     longest_streak = models.IntegerField(default=0)
     total_activities = models.IntegerField(default=0)
     updated_at = models.DateTimeField(auto_now=True)
+    total_questions_solved = models.IntegerField(default=0)
+    easy_questions_solved = models.IntegerField(default=0)
+    medium_questions_solved = models.IntegerField(default=0)
+    hard_questions_solved = models.IntegerField(default=0)
+    total_contests = models.IntegerField(default=0)
 
     class Meta:
         db_table = "user_metrics"
