@@ -14,6 +14,7 @@ from activities.services.metrics_service import MetricsService
 from activities.services.platforms import (
     CodeChefScraper,
     CodeforcesClient,
+    GeeksForGeeksScraper,
     GitHubClient,
     HackerRankClient,
     LeetcodeClient,
@@ -136,6 +137,19 @@ class SyncService:
             "data": codechef_response.get("data", {}),
         }
 
+    @staticmethod
+    def sync_geeksforgeeks(username):
+        scraper = GeeksForGeeksScraper(headless=True)
+        geeksforgeeks_response = async_to_sync(scraper.scrape_user_profile)(username)
+        if SyncService._is_error_payload(geeksforgeeks_response):
+            return geeksforgeeks_response
+        return {
+            "status": "success",
+            "platform": "geeksforgeeks",
+            "username": username,
+            "data": geeksforgeeks_response.get("data", {}),
+        }
+
     # ------------------------------------------------------------------ #
     # Orchestration                                                        #
     # ------------------------------------------------------------------ #
@@ -234,6 +248,15 @@ class SyncService:
                     platform_metadata[Platform.CODECHEF] = inner.get("profile", {})
                     all_data.append((account, inner.get("heatmap", [])))
 
+                elif account.platform == Platform.GeeksForGeeks:
+                    gfg_data = SyncService.sync_geeksforgeeks(account.username)
+                    if SyncService._is_error_payload(gfg_data):
+                        SyncService._mark_account_error(
+                            account, gfg_data.get("message")
+                        )
+                        continue
+                    platform_metadata[Platform.GeeksForGeeks] = gfg_data.get("data", {})
+
             except Exception as exc:
                 logger.exception(
                     "Unexpected error syncing %s account '%s': %s",
@@ -287,6 +310,11 @@ class SyncService:
             PlatformAccount.objects.filter(
                 user=user, platform=Platform.LEETCODE
             ).update(metadata=platform_metadata[Platform.LEETCODE])
+
+        if Platform.GeeksForGeeks in platform_metadata:
+            PlatformAccount.objects.filter(
+                user=user, platform=Platform.GeeksForGeeks
+            ).update(metadata=platform_metadata[Platform.GeeksForGeeks])
 
     @staticmethod
     def _persist_metrics_data(user, activity_metrics, cumulative_metrics):

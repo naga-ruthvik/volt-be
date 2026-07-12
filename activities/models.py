@@ -9,6 +9,7 @@ class Platform(models.TextChoices):
     LEETCODE = "leetcode", "LeetCode"
     HACKERRANK = "hackerrank", "HackerRank"
     GITHUB = "github", "GitHub"
+    GeeksForGeeks = "geeksforgeeks", "GeeksForGeeks"
 
 
 class PlatformAccount(models.Model):
@@ -20,6 +21,8 @@ class PlatformAccount(models.Model):
     metadata = models.JSONField(default=dict, blank=True)
     last_fetched = models.DateTimeField(null=True, blank=True)
     fetch_error = models.TextField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return self.platform + " - " + self.username

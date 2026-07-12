@@ -4,6 +4,7 @@ from .errors import PlatformNetworkError, PlatformTimeoutError
 from .github import GitHubClient
 from .hackerrank import HackerRankClient, HackerRankScraper
 from .leetcode import LeetcodeClient
+from .geeksforgeeks import GeeksForGeeksScraper
 
 __all__ = [
     "GitHubClient",
@@ -12,6 +13,7 @@ __all__ = [
     "LeetcodeClient",
     "HackerRankClient",
     "HackerRankScraper",
+    "GeeksForGeeksScraper",
     "PlatformNetworkError",
     "PlatformTimeoutError",
 ]
