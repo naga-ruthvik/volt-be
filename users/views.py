@@ -12,7 +12,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from common.email.service import EmailService
+from common.email.tasks import send_otp_email_task
 
 from .models import OTPSessions
 from .serializers import (
@@ -72,9 +72,8 @@ def generate_otp(request):
     otp_session = OTPSessions.objects.create(email=email, otp=hashed_otp, is_valid=True)
 
     # Normally we would send email here... print to console for dev
-    # TODO: send otp in email
-    EmailService.send_otp_email(email, otp)
-    print(f"OTP for {email}: {otp}")
+    # TODO: send otp in real email
+    send_otp_email_task.delay(email, otp)
 
     return Response(
         {
@@ -251,7 +250,7 @@ def complete_profile(request):
         )
 
     username = serializer.validated_data["username"]
-    
+
     if User.objects.filter(username=username).exclude(id=request.user.id).exists():
         return Response(
             {

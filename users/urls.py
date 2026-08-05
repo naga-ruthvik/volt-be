@@ -1,6 +1,12 @@
 from django.urls import path
 
-from .views import generate_otp, verify_otp, refresh_token_view, logout_view, complete_profile
+from .views import (
+    complete_profile,
+    generate_otp,
+    logout_view,
+    refresh_token_view,
+    verify_otp,
+)
 
 urlpatterns = [
     path("otp/generate/", generate_otp, name="generate_otp"),
