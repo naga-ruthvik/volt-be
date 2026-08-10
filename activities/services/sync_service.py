@@ -35,8 +35,20 @@ class SyncService:
 
     @staticmethod
     def sync_codeforces_data(username):
-        codeforces_client = CodeforcesClient()
-        return codeforces_client.get_activity_summary(username)
+        client = CodeforcesClient()
+        result = client.get_activity_data(username)
+        if SyncService._is_error_payload(result):
+            return result
+        inner = result.get("data", {})
+        return {
+            "status": "success",
+            "platform": "codeforces",
+            "username": username,
+            "data": {
+                "activity_summary": inner.get("activity_summary", []),
+                "metadata": inner.get("stats", {}),
+            },
+        }
 
     @staticmethod
     def sync_leetcode_data(username):
@@ -192,14 +204,9 @@ class SyncService:
                               value (e.g. "leetcode", "hackerrank", "codechef").
         """
         all_data = []
-        # Keyed by Platform value string; populated only when a platform
-        # successfully returns metadata worth storing on PlatformAccount.
         platform_metadata = {}
 
         for account in platform_accounts:
-            # Wrap each platform sync in try/except so a network error or
-            # unexpected response shape from one platform is isolated to that
-            # account — it won't abort the remaining platforms in the batch.
             try:
                 if account.platform == Platform.GITHUB:
                     data = SyncService.sync_github_data(account.username)
@@ -213,7 +220,9 @@ class SyncService:
                     if SyncService._is_error_payload(data):
                         SyncService._mark_account_error(account, data.get("message"))
                         continue
-                    all_data.append((account, SyncService._unwrap_success(data)))
+                    inner = data.get("data", {})
+                    all_data.append((account, inner.get("activity_summary", [])))
+                    platform_metadata[Platform.CODEFORCES] = inner.get("metadata", {})
 
                 elif account.platform == Platform.LEETCODE:
                     data = SyncService.sync_leetcode_data(account.username)
@@ -295,6 +304,11 @@ class SyncService:
         generation_request.status = "completed"
         generation_request.last_synced_at = timezone.now()
         generation_request.save(update_fields=["status", "last_synced_at"])
+
+        if Platform.CODEFORCES in platform_metadata:
+            PlatformAccount.objects.filter(
+                user=user, platform=Platform.CODEFORCES
+            ).update(metadata=platform_metadata[Platform.CODEFORCES])
 
         if Platform.HACKERRANK in platform_metadata:
             PlatformAccount.objects.filter(
