@@ -11,11 +11,11 @@ logger = logging.getLogger(__name__)
 
 
 def success_payload(username, data):
-    return {"status": "success", "username": username, "data": data}
+    return {"status": "success", "platform": "codechef", "username": username, "data": data}
 
 
 def error_payload(error_type, message):
-    return {"status": "error", "error_type": error_type, "message": message}
+    return {"status": "error", "platform": "codechef", "error_type": error_type, "message": message}
 
 
 class CodeChefScraper:

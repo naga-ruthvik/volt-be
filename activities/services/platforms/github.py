@@ -20,7 +20,7 @@ GITHUB_API = os.getenv("GITHUB_API")
 def _error_payload(platform: str, error_type: str, message: str, details=None) -> dict:
     return {
         "status": "error",
-        "platform": "GITHUB",
+        "platform": platform,
         "error_type": error_type,
         "message": message,
         "details": details or {},
@@ -37,7 +37,7 @@ def _build_fallback_id(
 def _success_payload(platform, username: str, data) -> dict:
     return {
         "status": "success",
-        "platform": "GITHUB",
+        "platform": platform,
         "username": username,
         "data": data,
     }
@@ -199,3 +199,76 @@ class GitHubClient:
             )
 
         return _success_payload("github", username, repos)
+
+    def get_issues(self, username: str) -> list[dict] | dict:
+        response = self._get(
+            f"{self.base_url}/search/issues",
+            params={"q": f"author:{username} is:issue"},
+        )
+
+        if response.status_code == 404:
+            return _error_payload("github", "INVALID_USERNAME", "GitHub user not found")
+        if self._is_rate_limited(response):
+            return _error_payload("github", "RATE_LIMIT", "GitHub rate limit exceeded")
+        if response.status_code != 200:
+            return _error_payload("github", "UNKNOWN", "GitHub issues fetch failed")
+
+        issues = []
+        for issue in response.json().get("items", []):
+            issue_id = issue.get("id")
+            created_at = issue.get("created_at")
+
+            if not issue_id and created_at:
+                issue_id = _build_fallback_id("github", username, created_at, "issue")
+
+            issues.append(
+                {
+                    "id": str(issue_id) if issue_id is not None else None,
+                    "platform": "github",
+                    "title": issue.get("title"),
+                    "created_at": created_at,
+                    "updated_at": issue.get("updated_at"),
+                    "state": issue.get("state"),
+                    "url": issue.get("html_url"),
+                }
+            )
+
+        return _success_payload("github", username, issues)
+
+    def get_pull_requests(self, username: str) -> list[dict] | dict:
+        response = self._get(
+            f"{self.base_url}/search/issues", params={"q": f"author:{username} is:pr"}
+        )
+
+        if response.status_code == 404:
+            return _error_payload("github", "INVALID_USERNAME", "GitHub user not found")
+        if self._is_rate_limited(response):
+            return _error_payload("github", "RATE_LIMIT", "GitHub rate limit exceeded")
+        if response.status_code != 200:
+            return _error_payload(
+                "github", "UNKNOWN", "GitHub pull requests fetch failed"
+            )
+
+        pull_requests = []
+        for pr in response.json().get("items", []):
+            pr_id = pr.get("id")
+            created_at = pr.get("created_at")
+
+            if not pr_id and created_at:
+                pr_id = _build_fallback_id(
+                    "github", username, created_at, "pull_request"
+                )
+
+            pull_requests.append(
+                {
+                    "id": str(pr_id) if pr_id is not None else None,
+                    "platform": "github",
+                    "title": pr.get("title"),
+                    "created_at": created_at,
+                    "updated_at": pr.get("updated_at"),
+                    "state": pr.get("state"),
+                    "url": pr.get("html_url"),
+                }
+            )
+
+        return _success_payload("github", username, pull_requests)

@@ -50,7 +50,7 @@ class HackerRankClient:
             return error_payload("INVALID_USERNAME", f"User '{username}' not found.")
         elif self._is_rate_limited(response):
             return error_payload(
-                "RateLimitExceeded", "HackerRank API rate limit exceeded."
+                "RATE_LIMIT", "HackerRank API rate limit exceeded."
             )
         elif response.status_code != 200:
             return error_payload("UNKNOWN", "Unable to fetch data from Hacker Rank")

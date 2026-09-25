@@ -116,7 +116,7 @@ def _success_payload(platform: str, username: str, data) -> dict:
 
 class CodeforcesClient:
     def __init__(self, base_url: str | None = None, timeout: tuple[int, int] = (5, 10)):
-        self.base_url = base_url or CODEFORCES_API
+        self.base_url = (base_url or CODEFORCES_API).rstrip("/") + "/"
         self.timeout = timeout
 
     def _get(self, url: str, params: dict | None = None) -> requests.Response:
@@ -341,33 +341,36 @@ class CodeforcesClient:
         )
 
     def get_contest_history(self, username: str) -> dict:
-        # TODO: Wire contest history into the sync flow and fix the bare
-        url = f"{self.base_url}/user.rating?handle={username}"
+        # TODO: Wire contest history into the sync flow and fix the bare [exception/logic?]
+        url = f"{self.base_url}user.rating?handle={username}"
         response = self._get(url)
+
         if response.status_code != 200:
             return _error_payload(
                 "codeforces", "UNKNOWN", "Codeforces contest history fetch failed"
             )
+
         response_data = response.json()
         if response_data.get("status") != "OK":
             return self._map_error(response_data.get("comment", ""))
-        results = response_data.get("result", [])
-        for result in results:
-            # TODO: confirm if the contest start date is equal to the rating updated date
-            result.pop("handle", None)
-            result["contest_id"] = result.get("contestId")
-            result["contest_name"] = result.get("contestName")
-            result["old_rating"] = result.get("oldRating")
-            result["new_rating"] = result.get("newRating")
-            rating_updated_time = (
-                datetime.fromtimestamp(result.get("ratingUpdatedTime"), tz=timezone.utc)
-                .date()
-                .isoformat()
+
+        formatted_results = []
+
+        for item in response_data.get("result", []):
+            # Safely handle potential missing timestamps
+            timestamp = item.get("ratingUpdateTimeSeconds")
+            updated_time = (
+                datetime.fromtimestamp(timestamp, tz=timezone.utc).date().isoformat()
+                if timestamp
+                else None
             )
-            result["rating_updated_time"] = rating_updated_time
-            result.pop("contestId", None)
-            result.pop("contestName", None)
-            result.pop("ratingUpdatedTime", None)
-            result.pop("oldRating", None)
-            result.pop("newRating", None)
-        return _success_payload("codeforces", username, results)
+            formatted_results.append(
+                {
+                    "contest_id": item.get("contestId"),
+                    "contest_name": item.get("contestName"),
+                    "old_rating": item.get("oldRating"),
+                    "new_rating": item.get("newRating"),
+                    "rating_updated_time": updated_time,
+                }
+            )
+        return _success_payload("codeforces", username, formatted_results)
