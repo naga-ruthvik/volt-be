@@ -2,6 +2,7 @@ import asyncio
 import logging
 
 from playwright.async_api import async_playwright
+from asgiref.sync import async_to_sync
 
 from .utils import build_metrics, error_payload, success_payload
 
@@ -12,7 +13,11 @@ class HackerRankScraper:
     def __init__(self, headless: bool = True):
         self.headless = headless
 
-    async def scrape_user_dashboard(self, username: str) -> dict:
+    def scrape_user_dashboard(self, username: str) -> dict:
+        """Synchronous public entry point."""
+        return async_to_sync(self._scrape_user_dashboard_async)(username)
+
+    async def _scrape_user_dashboard_async(self, username: str) -> dict:
         captured_data = await self._scrape_hackerrank_stealth(username)
 
         badges = captured_data.get("badges")

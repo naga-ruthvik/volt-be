@@ -73,50 +73,25 @@ Item lists (``get_activities``)::
     }
 """
 
-import hashlib
 import os
 from collections import defaultdict
 from datetime import datetime, timezone
 
 import requests
-from dotenv import load_dotenv
 
 from .errors import PlatformNetworkError, PlatformTimeoutError
+from .payloads import build_fallback_id, error_payload, success_payload
 
-load_dotenv()
+_CODEFORCES_API_BASE = "https://codeforces.com/api/"
 
-CODEFORCES_API = os.getenv("CODEFORCES_API")
-
-
-def _error_payload(platform: str, error_type: str, message: str, details=None) -> dict:
-    return {
-        "status": "error",
-        "platform": platform,
-        "error_type": error_type,
-        "message": message,
-        "details": details or {},
-    }
-
-
-def _build_fallback_id(
-    platform: str, username: str, timestamp: str, event_type: str
-) -> str:
-    input_str = f"{platform}_{username}_{timestamp}_{event_type}"
-    return hashlib.md5(input_str.encode("utf-8")).hexdigest()  # noqa: S324
-
-
-def _success_payload(platform: str, username: str, data) -> dict:
-    return {
-        "status": "success",
-        "platform": platform,
-        "username": username,
-        "data": data,
-    }
-
+# Module-level aliases keep the internal call sites unchanged.
+_error_payload = error_payload
+_success_payload = success_payload
+_build_fallback_id = build_fallback_id
 
 class CodeforcesClient:
     def __init__(self, base_url: str | None = None, timeout: tuple[int, int] = (5, 10)):
-        self.base_url = (base_url or CODEFORCES_API).rstrip("/") + "/"
+        self.base_url = (base_url or _CODEFORCES_API_BASE).rstrip("/") + "/"
         self.timeout = timeout
 
     def _get(self, url: str, params: dict | None = None) -> requests.Response:

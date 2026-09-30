@@ -4,48 +4,23 @@ Grouped summaries return: {"status": "success", "platform": "github", "username"
 Item lists return: {"status": "success", "platform": "github", "username": str, "data": [{"id": str, "platform": "github", "created_at": str, ...}]}
 """
 
-import hashlib
-import os
-
 import requests
-from dotenv import load_dotenv
 
 from .errors import PlatformNetworkError, PlatformTimeoutError
+from .payloads import build_fallback_id, error_payload, success_payload
 
-load_dotenv()
+_GITHUB_API_BASE = "https://api.github.com"
 
-GITHUB_API = os.getenv("GITHUB_API")
-
-
-def _error_payload(platform: str, error_type: str, message: str, details=None) -> dict:
-    return {
-        "status": "error",
-        "platform": platform,
-        "error_type": error_type,
-        "message": message,
-        "details": details or {},
-    }
-
-
-def _build_fallback_id(
-    platform: str, username: str, timestamp: str, event_type: str
-) -> str:
-    input_str = f"{platform}_{username}_{timestamp}_{event_type}"
-    return hashlib.md5(input_str.encode("utf-8")).hexdigest()
-
-
-def _success_payload(platform, username: str, data) -> dict:
-    return {
-        "status": "success",
-        "platform": platform,
-        "username": username,
-        "data": data,
-    }
+# Module-level aliases so the patch path used in tests
+# (``activities.services.platforms.github.requests.get``) stays stable.
+_error_payload = error_payload
+_success_payload = success_payload
+_build_fallback_id = build_fallback_id
 
 
 class GitHubClient:
     def __init__(self, base_url: str | None = None, timeout: tuple[int, int] = (5, 10)):
-        self.base_url = base_url or GITHUB_API
+        self.base_url = (base_url or _GITHUB_API_BASE).rstrip("/")
         self.timeout = timeout
 
     def _get(self, url: str, params: dict | None = None) -> requests.Response:

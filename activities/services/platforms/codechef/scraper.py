@@ -4,34 +4,41 @@ import json
 import logging
 import re
 
-import aiohttp
+import requests
 from bs4 import BeautifulSoup
+
+from ..payloads import (
+    error_payload as _error_payload,
+    success_payload as _success_payload,
+)
 
 logger = logging.getLogger(__name__)
 
 
 def success_payload(username, data):
-    return {"status": "success", "platform": "codechef", "username": username, "data": data}
+    """Convenience wrapper — callers don't need to repeat the platform name."""
+    return _success_payload("codechef", username, data)
 
 
 def error_payload(error_type, message):
-    return {"status": "error", "platform": "codechef", "error_type": error_type, "message": message}
+    """Convenience wrapper — callers don't need to repeat the platform name."""
+    return _error_payload("codechef", error_type, message)
 
 
 class CodeChefScraper:
     def __init__(self, timeout: int = 15):
-        self.timeout = aiohttp.ClientTimeout(total=timeout)
+        self.timeout = timeout
         self.headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.5",
         }
 
-    async def scrape_user_profile(self, username: str) -> dict:
+    def scrape_user_profile(self, username: str) -> dict:
         """
         Main public method to fetch and parse the CodeChef profile.
         """
-        html_content = await self._fetch_html_async(username)
+        html_content = self._fetch_html(username)
 
         if not html_content:
             return error_payload(
@@ -40,36 +47,34 @@ class CodeChefScraper:
             )
 
         try:
-            # TODO: consider wrapping this in asyncio.to_thread()
             dashboard_metrics = self._parse_html(html_content, username)
             return success_payload(username, data=dashboard_metrics)
 
-        except Exception as e:
+        except Exception:
+            logger.exception(
+                "CodeChef profile parse failed for %s", username
+            )
             return error_payload(
                 error_type="PARSE_FAILED",
                 message=f"Failed to parse profile structure for user: {username}. DOM might have changed.",
             )
 
-    async def _fetch_html_async(self, username: str) -> str:
+    def _fetch_html(self, username: str) -> str:
         """
-        Asynchronously fetches the raw HTML from CodeChef.
+        Synchronously fetches the raw HTML from CodeChef.
         """
         url = f"https://www.codechef.com/users/{username}"
 
         try:
-            async with aiohttp.ClientSession(
-                timeout=self.timeout, headers=self.headers
-            ) as session:
-                async with session.get(url) as response:
-                    if response.status == 200:
-                        return await response.text()
-                    else:
-                        logger.warning(f"CodeChef returned status {response.status} for user {username}")
-                        return None
-        except asyncio.TimeoutError:
+            response = requests.get(
+                url, headers=self.headers, timeout=self.timeout
+            )
+            response.raise_for_status()
+            return response.text
+        except requests.Timeout:
             logger.warning(f"CodeChef request timed out for user {username}")
             return None
-        except aiohttp.ClientError as e:
+        except requests.RequestException as e:
             logger.error(f"CodeChef network error for {username}: {e}")
             return None
 

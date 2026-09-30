@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import hashlib
 from datetime import UTC, datetime
 from typing import Any
 
 import requests
 
 from ..errors import PlatformNetworkError, PlatformTimeoutError
+from ..payloads import build_fallback_id, error_payload, success_payload
 from .queries import (
     AC_SUBMISSION_QUERY,
     ALL_CONTESTS,
@@ -35,33 +35,11 @@ LEETCODE_HEADERS = {
 }
 
 
-def _error_payload(
-    platform: str, error_type: str, message: str, details: dict | None = None
-) -> dict:
-    return {
-        "status": "error",
-        "platform": platform,
-        "error_type": error_type,
-        "message": message,
-        "details": details or {},
-    }
-
-
-def _success_payload(platform: str, username: str | None, data: Any) -> dict:
-    return {
-        "status": "success",
-        "platform": platform,
-        "username": username,
-        "data": data,
-    }
-
-
-def _build_fallback_id(
-    platform: str, username: str, timestamp: str, event_type: str
-) -> str:
-    input_str = f"{platform}_{username}_{timestamp}_{event_type}"
-    return hashlib.sha256(input_str.encode("utf-8")).hexdigest()
-
+# Module-level aliases so internal call sites (_error_payload, _success_payload,
+# _build_fallback_id) continue to work without touching any of the 920 lines below.
+_error_payload = error_payload
+_success_payload = success_payload
+_build_fallback_id = build_fallback_id
 
 def _normalize_username(username: str | None) -> str | None:
     return username if username else None

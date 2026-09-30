@@ -1,35 +1,30 @@
 import logging
 
-from playwright.async_api import async_playwright
+from ..payloads import (
+    error_payload as _error_payload,
+    success_payload as _success_payload,
+)
+from playwright.sync_api import sync_playwright
 
 logger = logging.getLogger(__name__)
 
 
 def success_payload(username: str, data: dict) -> dict:
-    return {
-        "status": "success",
-        "platform": "geeksforgeeks",
-        "username": username,
-        "data": data,
-    }
+    """Convenience wrapper — callers don't need to repeat the platform name."""
+    return _success_payload("geeksforgeeks", username, data)
 
 
 def error_payload(error_type: str, message: str, details: dict | None = None) -> dict:
-    return {
-        "status": "error",
-        "platform": "geeksforgeeks",
-        "error_type": error_type,
-        "message": message,
-        "details": details or {},
-    }
+    """Convenience wrapper — callers don't need to repeat the platform name."""
+    return _error_payload("geeksforgeeks", error_type, message, details)
 
 
 class GeeksForGeeksScraper:
     def __init__(self, headless: bool = True):
         self.headless = headless
 
-    async def scrape_user_profile(self, username: str) -> dict:
-        captured_data = await self._scrape_gfg_profile(username)
+    def scrape_user_profile(self, username: str) -> dict:
+        captured_data = self._scrape_gfg_profile(username)
 
         if not captured_data:
             return error_payload(
@@ -42,15 +37,15 @@ class GeeksForGeeksScraper:
 
         return success_payload(username=username, data=captured_data)
 
-    async def _scrape_gfg_profile(self, username: str) -> dict | None:
+    def _scrape_gfg_profile(self, username: str) -> dict | None:
         url = f"https://www.geeksforgeeks.org/profile/{username}?tab=activity"
 
-        async with async_playwright() as p:
+        with sync_playwright() as p:
             browser = None
             context = None
             try:
-                browser = await p.chromium.launch(headless=self.headless)
-                context = await browser.new_context(
+                browser = p.chromium.launch(headless=self.headless)
+                context = browser.new_context(
                     viewport={"width": 1920, "height": 1080},
                     user_agent=(
                         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -58,12 +53,12 @@ class GeeksForGeeksScraper:
                         "Chrome/120.0.0.0 Safari/537.36"
                     ),
                 )
-                page = await context.new_page()
+                page = context.new_page()
 
-                await page.goto(url, wait_until="networkidle", timeout=30000)
+                page.goto(url, wait_until="networkidle", timeout=30000)
 
                 try:
-                    await page.wait_for_selector(
+                    page.wait_for_selector(
                         '[class*="NewProfile_name"]', timeout=15000
                     )
                 except Exception:
@@ -74,8 +69,8 @@ class GeeksForGeeksScraper:
 
                 name_locator = page.locator('[class*="NewProfile_name"]').first
                 name = (
-                    (await name_locator.inner_text()).split("\n")[0].strip()
-                    if await name_locator.count()
+                    name_locator.inner_text().split("\n")[0].strip()
+                    if name_locator.count()
                     else "N/A"
                 )
 
@@ -83,29 +78,29 @@ class GeeksForGeeksScraper:
                     '[class*="NewProfile_designation"]'
                 ).first
                 institute = (
-                    await institute_locator.inner_text()
-                    if await institute_locator.count()
+                    institute_locator.inner_text()
+                    if institute_locator.count()
                     else "N/A"
                 )
 
                 scores: dict[str, str] = {}
-                score_rows = await page.locator(
+                score_rows = page.locator(
                     '[class*="ScoreContainer_score-row"]'
                 ).all()
                 for row in score_rows:
                     label_locator = row.locator('[class*="ScoreContainer_label"]').first
                     value_locator = row.locator('[class*="ScoreContainer_value"]').first
-                    if await label_locator.count() and await value_locator.count():
-                        label = (await label_locator.inner_text()).strip()
-                        value = (await value_locator.inner_text()).strip()
+                    if label_locator.count() and value_locator.count():
+                        label = label_locator.inner_text().strip()
+                        value = value_locator.inner_text().strip()
                         scores[label] = value
 
                 difficulty_stats: dict[str, int | str | None] = {}
-                difficulty_items = await page.locator(
+                difficulty_items = page.locator(
                     '[class*="DoughnutChart_legendItem"]'
                 ).all()
                 for item in difficulty_items:
-                    raw = (await item.inner_text()).strip()  # e.g. "Easy (94)"
+                    raw = item.inner_text().strip()  # e.g. "Easy (94)"
                     if not raw:
                         continue
                     if "(" in raw and raw.endswith(")"):
@@ -118,7 +113,7 @@ class GeeksForGeeksScraper:
                         difficulty_stats[raw] = None
 
                 potd_stats: dict[str, str] = {}
-                potd_items = await page.locator(
+                potd_items = page.locator(
                     '[class*="PotdContainer_statItem"]'
                 ).all()
                 for item in potd_items:
@@ -128,14 +123,14 @@ class GeeksForGeeksScraper:
                     value_locator = item.locator(
                         '[class*="PotdContainer_statValue"]'
                     ).first
-                    if await label_locator.count() and await value_locator.count():
+                    if label_locator.count() and value_locator.count():
                         label = (
-                            (await label_locator.inner_text()).replace(":", "").strip()
+                            label_locator.inner_text().replace(":", "").strip()
                         )
-                        value = (await value_locator.inner_text()).strip()
+                        value = value_locator.inner_text().strip()
                         potd_stats[label] = value
 
-                heatmap_exists = await page.locator(".ch-domain").count() > 0
+                heatmap_exists = page.locator(".ch-domain").count() > 0
 
                 personal_info = {
                     "userName": username,
@@ -157,17 +152,14 @@ class GeeksForGeeksScraper:
                     "heatmapAvailable": heatmap_exists,
                 }
 
-            except TimeoutError as e:
-                logger.warning("GFG scrape timed out for %s: %s", username, e)
-                return None
             except Exception as e:
                 logger.exception("GFG scrape failed for %s: %s", username, e)
                 return None
             finally:
                 if context is not None:
-                    await context.close()
+                    context.close()
                 if browser is not None:
-                    await browser.close()
+                    browser.close()
 
 
 __all__ = ["GeeksForGeeksScraper"]

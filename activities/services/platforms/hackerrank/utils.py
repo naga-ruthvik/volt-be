@@ -1,20 +1,17 @@
+from ..payloads import (
+    error_payload as _error_payload,
+    success_payload as _success_payload,
+)
+
+
 def error_payload(error_type: str, message: str, details: dict | None = None) -> dict:
-    return {
-        "status": "error",
-        "platform": "HACKER RANK",
-        "error_type": error_type,
-        "message": message,
-        "details": details or {},
-    }
+    """Convenience wrapper — callers don't need to repeat the platform name."""
+    return _error_payload("hackerrank", error_type, message, details)
 
 
 def success_payload(username: str, data: dict | list) -> dict:
-    return {
-        "status": "success",
-        "platform": "HACKER RANK",
-        "username": username,
-        "data": data,
-    }
+    """Convenience wrapper — callers don't need to repeat the platform name."""
+    return _success_payload("hackerrank", username, data)
 
 
 def _calculate_percentage(current: int, total: int) -> float:
