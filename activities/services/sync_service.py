@@ -6,8 +6,6 @@ from datetime import timezone as dt_timezone
 from django.db import transaction
 from django.utils import timezone
 
-from asgiref.sync import async_to_sync
-
 from activities.models import Platform, PlatformAccount, UserMetrics
 from activities.services.activity_service import ActivityService
 from activities.services.metrics_service import MetricsService
@@ -36,18 +34,22 @@ class SyncService:
     @staticmethod
     def sync_codeforces_data(username):
         client = CodeforcesClient()
-        result = client.get_activity_data(username)
-        if SyncService._is_error_payload(result):
-            return result
-        inner = result.get("data", {})
+        activity_response = client.get_activity_data(username)
+        contest_history_response = client.get_contest_history(username)
+        if SyncService._is_error_payload(
+            activity_response
+        ) or SyncService._is_error_payload(contest_history_response):
+            return activity_response
+        activity_response_data = activity_response.get("data", {})
+        activity_summary = activity_response_data.get("activity_summary", {})
+        contest_history_data = contest_history_response.get("data", {})
+        metadata = activity_response_data.get("stats")
+        metadata["contest_history"] = contest_history_data
         return {
             "status": "success",
             "platform": "codeforces",
             "username": username,
-            "data": {
-                "activity_summary": inner.get("activity_summary", []),
-                "metadata": inner.get("stats", {}),
-            },
+            "data": {"activity_summary": activity_summary, "metadata": metadata},
         }
 
     @staticmethod
@@ -139,7 +141,7 @@ class SyncService:
     @staticmethod
     def sync_codechef_data(username: str):
         client = CodeChefScraper()
-        codechef_response = async_to_sync(client.scrape_user_profile)(username)
+        codechef_response = client.scrape_user_profile(username)
         if SyncService._is_error_payload(codechef_response):
             return codechef_response
         return {
@@ -152,7 +154,7 @@ class SyncService:
     @staticmethod
     def sync_geeksforgeeks(username):
         scraper = GeeksForGeeksScraper(headless=True)
-        geeksforgeeks_response = async_to_sync(scraper.scrape_user_profile)(username)
+        geeksforgeeks_response = scraper.scrape_user_profile(username)
         if SyncService._is_error_payload(geeksforgeeks_response):
             return geeksforgeeks_response
         return {
